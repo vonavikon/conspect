@@ -1,7 +1,6 @@
 // Единая икон-система «Конспект»: монохромные SVG на currentColor, stroke 1.7,
 // viewBox 24 (кроме монограммы-C — 64). Никаких эмодзи и типографских глифов:
 // каждый значок — настоящая SVG, управляемая цветом и размером контекста.
-// Path-и совпадают с макетом wiki/projects/conspect/mockup/screen.html 1:1.
 
 import type { CSSProperties } from "react";
 
@@ -31,8 +30,8 @@ function Svg({ size = 16, style, title, strokeWidth = 1.7, linecap = "round", li
 
 // Монограмма-C: кольцо с малым сектором (вырез ~63° — оптический центр совпадает с
 // геометрическим). Хром-градиент. busy — статична: пульс идёт на обёртке
-// (.circle-badge.busy → cpulse в теме), сама C не вращается (канон screen.html §05/§06).
-// spin — отдельная опция для поверхностей вне канона (триггер на watch, feed-overlay):
+// (.circle-badge.busy → cpulse в теме), сама C не вращается.
+// spin — отдельная опция для поверхностей с вращением (триггер на watch, feed-overlay):
 // там busy-C крутится. Канонические контексты spin не передают.
 export function Clogo({ size = 20, busy = false, spin = false, style }: { size?: number; busy?: boolean; spin?: boolean; style?: CSSProperties }) {
   const s = Math.max(12, size);
@@ -47,7 +46,7 @@ export function Clogo({ size = 20, busy = false, spin = false, style }: { size?:
     >
       <defs>
         {/* Холодное серебро: металл логотипа одной природы с кругом-триггером и точками
-            секций. Канон carbon.html (.clogo/.metal radial). busy/spin — на обёртке, не в градиенте. */}
+            секций. busy/spin — на обёртке, не в градиенте. */}
         <linearGradient id="clogo-chrome" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="#ffffff" />
           <stop offset="22%" stopColor="#f0f0f2" />
@@ -80,7 +79,7 @@ export const IconDownload = (p: IconProps) => (
   </Svg>
 );
 
-// Часы для cab-saved кабинета (.cab-saved, screen.html:724): circle r9 cy12,
+// Часы для кабинета «сэкономлено» (.cab-saved): circle r9 cy12,
 // стрелки M12 6v6l4 2, stroke 1.8.
 export const IconClock = (p: IconProps) => (
   <Svg {...p} strokeWidth={1.8}>
@@ -108,7 +107,7 @@ export const IconChevron = (p: IconProps) => (
   </Svg>
 );
 
-// Шестерёнка-«Настройки». Path 1:1 из flow.html (.pop-foot .gear).
+// Шестерёнка-«Настройки».
 export const IconSettings = (p: IconProps) => (
   <Svg {...p}>
     <circle cx="12" cy="12" r="3" />
@@ -116,9 +115,8 @@ export const IconSettings = (p: IconProps) => (
   </Svg>
 );
 
-// Лупа-поиск для кабинета (.cab-search, screen.html:730). Circle + ручка.
-// Канон НЕ задаёт stroke-linecap/linejoin → плоские концы (butt/miter), в отличие
-// от часов cab-saved (round). stroke 1.8.
+// Лупа-поиск для кабинета (.cab-search). Circle + ручка.
+// Здесь плоские концы (butt/miter), в отличие от часов cab-saved (round). stroke 1.8.
 export const IconSearch = (p: IconProps) => (
   <Svg {...p} strokeWidth={1.8} linecap="butt" linejoin="miter">
     <circle cx="11" cy="11" r="7" />

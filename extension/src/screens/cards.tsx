@@ -1,7 +1,5 @@
 // Общие карточки экранов: переиспользуются панелью (ConspectPanel, Shadow DOM).
 // Чистый inline-стиль + дизайн-токены, без antd — чтобы работать и в Shadow DOM панели.
-//
-// Эталон визуала загрузки: wiki/projects/conspect/mockup/flow.html §06.
 import { useEffect, useState, type ReactNode, type CSSProperties } from "react";
 import { Clogo } from "../theme/icons";
 import {
@@ -25,8 +23,7 @@ import {
 } from "../theme/conspectTheme";
 
 // ---------- §06 Loading: пул фактов + хуки ----------
-// 16 фактов строго из mockup/loading-facts.md (единственный источник; грамматика
-// причёсана, выдумок нет). [[…]] — подсветка ключевого фрагмента (как .q в макете).
+// 16 фактов о чтении и внимании. [[…]] — подсветка ключевого фрагмента.
 // Разбор через сплит → React-узлы, без dangerouslySetInnerHTML: факты — литералы
 // compile-time, но так безопаснее.
 const LOADING_FACTS: string[] = [
@@ -113,7 +110,7 @@ const loadingCss = `
 /* §06 стадии. done/active/pending — по фазам SSE, не по точным статусам бэкенда.
    Базовый объём .cs-stage/.cs-st-ico (gradient-кружок, bevel, glow, padding, inset-фон
    строки) приходит из skeuoCss. Здесь — только дополнения: спиннер active, точка pending,
-   чек done поверх line-height:0 базового кружка. Эталон — carbon.html §07. */
+   чек done поверх line-height:0 базового кружка. */
 .cs-stages{display:flex;flex-direction:column;gap:7px;margin-top:2px;align-items:stretch;width:100%;}
 .cs-stage{transition:color .3s ${EASE}}
 .cs-stage .cs-st-ico{line-height:0}

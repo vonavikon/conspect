@@ -1,7 +1,6 @@
-// Skeuomorphism дизайн-система «Конспект» (айдентика ui-identities №5, материал Карбон):
-// углеродное плетение, холодное серебро объёмов, изумрудный CTA. Канон —
-// wiki/projects/conspect/mockup/skeuo-variants/carbon.html. В отличие от бронзы, акценты
-// разнесены: primary CTA-кнопки зелёные, таймкоды/фокус/stage — янтарные (brand conspect),
+// Skeuomorphism дизайн-система «Конспект», материал Карбон:
+// углеродное плетение, холодное серебро объёмов, изумрудный CTA. Акценты разнесены:
+// primary CTA-кнопки зелёные, таймкоды/фокус/stage — янтарные (brand conspect),
 // металл (Clogo/круг-триггер/точки секций) — холодное серебро. Три природы, не одна.
 //
 // Почему inline + cs-* классы, а не antd-style createStyles: createStyles гонит стили
@@ -37,7 +36,7 @@ export const ERR = "#e25c5c";
 export const AMBER = "#f5a623";
 
 // ---------- серебряный radial-металл (Clogo, круг-триггер, точки секций) ----------
-// Канон carbon.html: холодное серебро, высокий блик сверху-слева → тёмный край.
+// Холодное серебро, высокий блик сверху-слева → тёмный край.
 export const METAL_RADIAL = "radial-gradient(circle at 32% 26%, #ffffff 0%, #f0f0f2 10%, #c0c0c4 22%, #9a9a9f 42%, #6a6a72 62%, #4a4a4f 80%, #2a2a2e 94%, #08080a 100%)";
 // Точка секции в панели (adot) — компактнее, без тёмного края.
 export const METAL_DOT = "radial-gradient(circle at 35% 30%, #ffffff, #f0f0f2 30%, #9a9a9f 62%, #4a4a4f 92%, #1f1f22)";
@@ -59,7 +58,7 @@ export const CTA_BORDER = "#1f5c40";
 export const INPUT_BG = "#0a0a0c";
 
 // ---------- skeuo-тени (суть стиля: bevel + drop) ----------
-// Мягче и темнее бронзы: карбон матовый, фаска приглушена, drop глубже.
+// Тени: карбон матовый, фаска приглушена, drop глубже.
 export const SHADOW_BTN = "inset 0 1px 0 rgba(255,255,255,.18), inset 0 -2px rgba(0,0,0,.55), 0 4px 7px rgba(0,0,0,.65)";
 export const SHADOW_BTN_PRESS = "inset 0 2px 4px rgba(0,0,0,.7), inset 0 -1px rgba(255,255,255,.03)";
 export const SHADOW_CARD = "inset 0 1px 0 rgba(255,255,255,.05), 0 8px 16px rgba(0,0,0,.7)";
@@ -172,7 +171,7 @@ export const pageTexCss = `background-color:${BG};background-image:radial-gradie
 
 // Skeuo CSS-примитивы — единый источник объёмных элементов (кнопки/карточки/inset-поля/
 // badges/stages/металл). Вставляются <style> в каждый shadow-компонент и в top-level
-// страницы. Канон: mockup/skeuo-variants/carbon.html (.btn/.panel/.input/.tc/.mini/.stage/.metal).
+// страницы. Классы: .btn/.panel/.input/.tc/.mini/.stage/.metal.
 export const skeuoCss = `
 .cs-btn{font:600 14px ${FONT_SANS};padding:11px 20px;border-radius:9px;border:1px solid ${BTN_BORDER};background:${BTN};color:${TEXT};cursor:pointer;text-shadow:${TXT_SHADOW};box-shadow:${SHADOW_BTN};transition:filter .12s ${EASE}, transform .06s ${EASE}, box-shadow .12s ${EASE};user-select:none;display:inline-flex;align-items:center;justify-content:center;gap:8px;line-height:1;}
 .cs-btn:hover{filter:brightness(1.12)}
@@ -239,7 +238,7 @@ export const mdBodyCss = `
 @keyframes clogo-blink{0%,50%{opacity:1}51%,100%{opacity:0}}
 `;
 
-// §07 read-panel (.rp-body). Эталон carbon.html (.panel-body/.psec-h/.thesis).
+// §07 read-panel (.rp-body).
 export const panelBodyCss = `
 .rp-body{font:500 12px/1.6 ${FONT_SANS};color:${TEXT};}
 .rp-body>:first-child{margin-top:0;}
@@ -261,7 +260,7 @@ export const panelBodyCss = `
 .rp-body blockquote strong{color:inherit;}
 `;
 
-// §08 reader (.rd-body). Эталон carbon.html. h2 .tc — янтарный skeuo-бейдж (brand).
+// §08 reader (.rd-body). h2 .tc — янтарный skeuo-бейдж (brand).
 export const readerBodyCss = `
 .rd-body{font:400 14px/1.65 ${FONT_SANS};color:${SEC};}
 .rd-body>:first-child{margin-top:0;}

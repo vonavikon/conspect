@@ -1,4 +1,3 @@
-# Копия из projects/video-digest-bot/clean_transcript.py.
 """Clean SRT subtitles (YouTube auto-captions) into a readable transcript.
 
 YouTube auto-captions use a rolling window: each block repeats the tail of the

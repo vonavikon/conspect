@@ -1,6 +1,6 @@
-// Каталог, где лежат .env и yt-dlp.exe рядом с сервером. Для self-host .exe (Bun
-// compile) import.meta.url ведёт внутрь бандла, а не в папку бинарника — поэтому
-// ориентируемся на process.execPath. Для node dist/main.js execPath указывает на
+// Каталог рядом с сервером (здесь же лежат .env и, при локальной установке, бинарник
+// yt-dlp). Для скомпилированного в один файл бинарника import.meta.url ведёт внутрь
+// бандла, поэтому берём каталог process.execPath; для node dist/main.js execPath — это
 // node.exe, тогда берём import.meta.url.
 import path from "node:path";
 import { fileURLToPath } from "node:url";

@@ -1,5 +1,5 @@
-// Копия из projects/conspect/backend/src/pipeline/llm.ts — одинаковый промпт конспекта.
-// Единственное отличие: VideoMeta определён локально, без зависимости от db.ts.
+// Промпт конспекта (системный) и вызовы LLM — обычный и streaming. VideoMeta описан
+// здесь же, в этом файле.
 
 export type VideoMeta = {
   title: string;

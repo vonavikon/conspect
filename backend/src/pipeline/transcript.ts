@@ -1,6 +1,5 @@
-// Чистка SRT → тело транскрипта. Раньше звала clean_transcript.py через subprocess
-// (python3 + скрипт рядом с бинарником). Для self-host-сборки в один .exe Python-зависимость
-// убрана: логика портирована в cleanTranscript.ts (1:1 с Python-версией).
+// Чистка SRT → тело транскрипта. Логика портирована 1:1 из clean_transcript.py (Python,
+// только эталон для тестов) в cleanTranscript.ts, чтобы рантайм не зависел от Python.
 import { readFile } from "node:fs/promises";
 import { cleanTranscript } from "./cleanTranscript.js";
 

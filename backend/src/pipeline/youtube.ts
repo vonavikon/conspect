@@ -1,4 +1,4 @@
-// Копия из projects/video-digest-bot/src/pipeline/youtube.ts — одинаковая extraction на боте и расширении.
+// Извлечение видео: нормализация URL, yt-dlp (probe + субтитры), выбор языка.
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { access } from "node:fs/promises";
@@ -76,9 +76,8 @@ export type Runner = (file: string, args: string[], opts: { timeout: number }) =
 type Deps = { probeTimeoutSec: number; downloadTimeoutSec: number; runner?: Runner; ytdlpBin?: string };
 
 // Путь к yt-dlp: явный YTDLP_BIN из окружения → рядом с бинарником/модулем → PATH.
-// Для self-host .exe yt-dlp.exe кладётся рядом с сервером, чтобы не требовать
-// установку yt-dlp в систему. В Docker (образ ставит yt-dlp в PATH) и на VPS
-// резолвится обычный yt-dlp.
+// На Windows рядом с сервером может лежать yt-dlp.exe, чтобы не требовать установку
+// yt-dlp в систему. В Docker (образ ставит yt-dlp в PATH) резолвится обычный yt-dlp.
 export function resolveYtdlpBin(moduleDir: string): string {
   if (process.env.YTDLP_BIN) return process.env.YTDLP_BIN;
   for (const name of ["yt-dlp.exe", "yt-dlp"]) {

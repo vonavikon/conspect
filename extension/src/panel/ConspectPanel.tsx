@@ -8,7 +8,6 @@
 // Шапка: Clogo + title + Stop (при стриме) + скопировать/скачать (после готовности) +
 // свернуть + закрыть. Действия в шапке, отдельного футера нет.
 // Свернуть/развернуть — плавный морфинг контейнера (framer-motion) + crossfade круг↔панель.
-// Оформление 1:1 с макетом wiki/projects/conspect/mockup/screen.html §07.
 import { useEffect, useRef, useState } from "react";
 import { useSyncExternalStore } from "react";
 import { motion } from "framer-motion";

@@ -1,4 +1,4 @@
-// Копия из projects/video-digest-bot/src/pipeline/orchestrator.ts.
+// Сборка конспекта целиком: probe + субтитры + чистка + LLM + результат (или SSE-стрим).
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";

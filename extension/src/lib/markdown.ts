@@ -20,7 +20,7 @@ export function renderMarkdown(md: string, mode?: "panel" | "reader"): string {
   const headed = mode ? transformSectionHeadings(clean, mode) : clean;
   // В panel-режиме оборачиваем каждую секцию (h2 + её контент) в <section class="rp-sec">:
   // так p/ul получают margin:0 как в макете (.rp-body p/ul{margin:0}), а межсекционный
-  // интервал обеспечивает .rp-sec{margin-bottom:13px} (flow.html:277). Без обёртки пустые
+  // интервал обеспечивает .rp-sec{margin-bottom:13px}. Без обёртки пустые
   // margin слили бы абзацы и списки.
   const wrapped = mode === "panel" ? wrapPanelSections(headed) : headed;
   // Таймкоды (C2) навешиваем ПОСЛЕ sanitize: DOMPurify с ALLOW_DATA_ATTR:false снял бы
