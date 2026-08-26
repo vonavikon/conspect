@@ -1,0 +1,10 @@
+services:
+  backend:
+    build: .
+    container_name: conspect-backend
+    restart: always
+    env_file: .env
+    environment:
+      - TMPDIR=/tmp/digest
+    ports:
+      - "127.0.0.1:3000:3000"

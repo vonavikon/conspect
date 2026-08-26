@@ -1,0 +1,12 @@
+node_modules/
+dist/
+data/
+.env
+*.db
+*.srt
+/tmp/
+# Деплой-артефакты, временные скрипты, кэш (audit 2026-07)
+*.tar.gz
+tmp-*
+__pycache__/
+*.pyc

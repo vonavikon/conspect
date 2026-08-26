@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+data/
+tmp/
+*.log
+*.srt
+*.tar.gz
+__pycache__/
+*.pyc
+.git
