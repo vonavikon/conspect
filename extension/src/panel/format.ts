@@ -27,12 +27,12 @@ export const REASON_TEXT: Record<string, string> = {
   empty_transcript: "К сожалению, для этого видео конспект невозможен.",
   unavailable: "Видео недоступно.",
   conspectus_failed: "Не получилось собрать конспект. Попробуйте ещё раз.",
-  not_configured: "Сервер не настроен. Откройте настройки расширения и укажите адрес сервера и токен.",
+  not_configured: "Сервер не настроен. Добавьте файл config.json в папку расширения и перезагрузите его.",
   http_error: "Сервис конспектов недоступен. Попробуйте позже.",
   exception: "Не получилось связаться с сервисом. Попробуйте ещё раз.",
   no_content: "Не слышу речи в видео.",
   stream_closed: "Соединение прервалось. Попробуйте ещё раз.",
-  rate_limited: "Слишком много запросов. Подождите минуту и попробуйте снова.",
+  busy: "Сервер занят. Попробуйте ещё раз через несколько секунд.",
 };
 
 export function wrapFrontmatter(r: DigestResp, url: string): string {
@@ -71,28 +71,49 @@ export function pluralRu(n: number, forms: [string, string, string]): string {
   return forms[2];
 }
 
-// Основные тезисы конспекта — заголовки секций (## …), очищенные от таймкода и звёздочек.
+// Структурные секции конспекта — не «темы» с таймкодом. Не выводим их в списке тезисов:
+// иначе «Основные тезисы» и «Вывод» попадут в перечень тем.
+const STRUCTURAL_SECTION = /^(основные тезисы|вывод|выводы)$/i;
+// Таймкод в начале «## (MM:SS) Тема» (формат промпта) или в конце «## Тема (MM:SS)».
+const TC_LEAD = /^\(\d{1,2}:\d{2}(?::\d{2})?\)\s*/;
+const TC_TRAIL = /\s*\(\d{1,2}:\d{2}(?::\d{2})?\)\s*$/;
+
+// Основные тезисы конспекта — заголовки тем (## …), очищенные от таймкода и звёздочек.
 // Для превью в архиве/попапе: показываем TL;DR + этот список + «Читать полностью», не весь текст.
 export function extractTeasers(md: string): string[] {
   const out: string[] = [];
   for (const line of md.split("\n")) {
     const m = /^##\s+(.+?)\s*$/.exec(line);
     if (!m) continue;
-    let label = m[1].replace(/\s*\(\d{1,2}:\d{2}(?::\d{2})?\)\s*$/, "").trim();
-    label = label.replace(/\*\*/g, "").trim();
-    if (label) out.push(label);
+    const label = m[1].replace(TC_LEAD, "").replace(TC_TRAIL, "").replace(/\*\*/g, "").trim();
+    if (label && !STRUCTURAL_SECTION.test(label)) out.push(label);
   }
   return out.slice(0, 8);
 }
 
-// Минут сэкономлено: длина видео минус ~3 мин на чтение конспекта. Короткие (<4 мин) — 0.
+// Таймкоды тем конспекта по порядку — для списка «Таймкоды» в превью кабинета.
+export function extractTimecodes(md: string): string[] {
+  const out: string[] = [];
+  for (const line of md.split("\n")) {
+    const m = /^##\s+(.+?)\s*$/.exec(line);
+    if (!m) continue;
+    const body = m[1].trim();
+    const lead = /^\((\d{1,2}:\d{2}(?::\d{2})?)\)/.exec(body);
+    const trail = /\((\d{1,2}:\d{2}(?::\d{2})?)\)\s*$/.exec(body);
+    const tc = lead?.[1] ?? trail?.[1];
+    if (tc) out.push(tc);
+  }
+  return out;
+}
+
+// Минут сохранено: длина видео минус ~3 мин на чтение конспекта. Короткие (<4 мин) — 0.
 // Эвристика: бэкенд агрегатов не отдаёт, считаем на клиенте (кабинет, панель, ридер).
 export function savedMinutes(sec?: number | null): number {
   if (!sec || sec <= 240) return 0;
   return Math.floor(sec / 60) - 3;
 }
 
-// Суммарное/среднее сэкономлено по списку длительностей дайджестов.
+// Суммарное/среднее сохранено по списку длительностей дайджестов.
 // count — все конспекты (для надписи «N конспектов»). avg — по всем конспектам
 // (totalMin/count), не только по saved>0: иначе единственный короткий ролик давал
 // «в среднем —» вместо осмысленного числа. Канон .cab-saved: total и avg по списку.
@@ -103,13 +124,35 @@ export function totalSaved(secs: (number | null | undefined)[]): { totalMin: num
   return { totalMin, count, avgMin };
 }
 
+// Минуты в компактную строку: 40 мин; 5 ч 20 мин; 2 дн 3 ч. Сутки и больше — в днях
+// (totalMin в кабинете уходит за 24 ч уже на ~10 длинных видео, «1534 мин» не читается).
+// Нулевые хвосты опускаем: «5 ч», «2 дн», не «5 ч 0 мин».
+export function fmtSavedMin(min: number): string {
+  if (min < 60) return `${min} мин`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (h < 24) return m ? `${h} ч ${m} мин` : `${h} ч`;
+  const d = Math.floor(h / 24);
+  const rh = h % 24;
+  return rh ? `${d} дн ${rh} ч` : `${d} дн`;
+}
+
 // Разделить conspectus на TL;DR («Главная мысль») и тело. TL;DR — первый блок до
 // первого «## » (как в макете rp-tldr). Если conspectus начинается с «## » — TL;DR пуст.
 // Отступы в начале строк снимаем: модель иногда ставит 4 пробела, и marked читает это
 // как code-блок — второй абзац уезжает в моноширинный отступ «где-то с середины».
 export function splitTldr(md: string): { tldr: string; body: string } {
   const s = md.replace(/^\s+/, "");
-  const idx = s.search(/^##\s/m);
+  // Граница «Главной мысли» — первый структурный блок: заголовок секции (## ) или
+  // блок-цитата «Оговорка» (> ), что раньше. «Оговорка» — контент тела, а не TL;DR:
+  // до неё лишь вступление (1-2 предложения), иначе blockquote уезжал в .rp-tldr-txt,
+  // где нет стилей .rp-body blockquote — вёрстка оговорки ломалась после первого «##».
+  const headingIdx = s.search(/^##\s/m);
+  const quoteIdx = s.search(/^>\s?/m);
+  let idx = -1;
+  if (headingIdx === -1) idx = quoteIdx;
+  else if (quoteIdx === -1) idx = headingIdx;
+  else idx = Math.min(headingIdx, quoteIdx);
   if (idx <= 0) return { tldr: "", body: md };
   const tldr = s
     .slice(0, idx)

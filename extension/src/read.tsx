@@ -9,8 +9,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { renderMarkdown } from "./lib/markdown";
 import { getDigest, type Digest } from "./lib/store";
-import { SkelSwap, Skeleton } from "./screens/cards";
-import { fileName, fmtDuration, savedMinutes, splitTldr, wrapFrontmatter, downloadBlob, type Meta } from "./panel/format";
+import { Skeleton } from "./screens/cards";
+import { fileName, fmtDuration, savedMinutes, fmtSavedMin, splitTldr, wrapFrontmatter, downloadBlob, type Meta } from "./panel/format";
 import { Clogo, IconArrowLeft, IconCheck, IconCopy, IconDownload, IconYoutube } from "./theme/icons";
 import {
   AMBER,
@@ -38,7 +38,6 @@ import {
   reducedMotionCss,
   pageTexCss,
   skeuoCss,
-  swapCss,
 } from "./theme/conspectTheme";
 import { injectFonts } from "./lib/fonts";
 
@@ -163,7 +162,6 @@ export function Read() {
     <>
       <style>{`*{box-sizing:border-box}@keyframes cs-page-in{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}`}</style>
       <style>{skeuoCss}</style>
-      <style>{swapCss}</style>
       <style>{`html,body{margin:0;min-height:100vh;${pageTexCss}color:${TEXT};font:14px/1.55 ${FONT_SANS};}`}</style>
       <style>{mdBodyCss}</style>
       <style>{readerBodyCss}</style>
@@ -174,38 +172,36 @@ export function Read() {
         {/* Карточка без overflow:hidden — иначе position:sticky шапки не липнет
             (overflow:hidden превращает её в scroll-контейнер без прокрутки). */}
         <div className="cs-card" style={{ width: "100%", maxWidth: 720, borderRadius: 16, boxShadow: "0 24px 60px rgba(0,0,0,.55)", display: "flex", flexDirection: "column" }}>
-          {/* Липкая шапка: назад в архив · заголовок · скопировать · скачать · YouTube.
-              position:sticky липнет к viewport при скролте карточки. */}
-          <div className="rd-bar" style={{ position: "sticky", top: 0, zIndex: 5, display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: SURFACE_HEAD, borderBottom: `1px solid ${BORDER}`, borderRadius: "16px 16px 0 0", boxShadow: "inset 0 1px 0 rgba(255,255,255,.08)" }}>
-            <a href={cabinetHref} title="Назад в архив" aria-label="Назад в архив" className="cs-mini" style={{ flex: "0 0 auto", textDecoration: "none" }}><IconArrowLeft size={14} /></a>
-            <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", lineHeight: 0, flex: "0 0 auto" }}><Clogo size={16} /></span>
-            <span style={{ flex: 1, minWidth: 0, alignSelf: "center", font: `500 12px/1.2 ${FONT_SANS}`, color: SEC, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{data?.title ?? "Конспект"}</span>
-            <button title={copied ? "Скопировано" : "Скопировать"} aria-label={copied ? "Скопировано" : "Скопировать"} onClick={async () => { if (await copy()) { setCopied(true); setTimeout(() => setCopied(false), 1400); } }} className="cs-mini" style={{ flex: "0 0 auto", color: copied ? AMBER : undefined }}><span className={copied ? "cs-swap done" : "cs-swap"}><IconCopy size={14} /><IconCheck size={14} /></span></button>
-            <button title="Скачать .md" aria-label="Скачать .md" onClick={download} className="cs-mini" style={{ flex: "0 0 auto" }}><IconDownload size={14} /></button>
-            {srcUrl && (
-              <a href={srcUrl} target="_blank" rel="noopener noreferrer" title="Открыть на YouTube" aria-label="Открыть на YouTube" className="cs-mini" style={{ flex: "0 0 auto", color: YT_BLUE, textDecoration: "none" }}><IconYoutube size={15} /></a>
-            )}
-          </div>
+          {/* Липкая шапка + прогресс-бар: обёрнуты в общий sticky-контейнер, чтобы полоса
+              чтения липла к viewport вместе с шапкой, а не уезжала при скролле. */}
+          <div style={{ position: "sticky", top: 0, zIndex: 5, flex: "0 0 auto" }}>
+            <div className="rd-bar" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: SURFACE_HEAD, borderBottom: `1px solid ${BORDER}`, borderRadius: "16px 16px 0 0", boxShadow: "inset 0 1px 0 rgba(255,255,255,.08)" }}>
+              <a href={cabinetHref} title="Назад в архив" aria-label="Назад в архив" className="cs-mini" style={{ flex: "0 0 auto", textDecoration: "none" }}><IconArrowLeft size={14} /></a>
+              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", lineHeight: 0, flex: "0 0 auto" }}><Clogo size={16} /></span>
+              <span style={{ flex: 1, minWidth: 0, alignSelf: "center", font: `500 12px/1.2 ${FONT_SANS}`, color: SEC, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{data?.title ?? "Конспект"}</span>
+              <button title={copied ? "Скопировано" : "Скопировать"} aria-label={copied ? "Скопировано" : "Скопировать"} onClick={async () => { if (await copy()) { setCopied(true); setTimeout(() => setCopied(false), 1400); } }} className="cs-mini" style={{ flex: "0 0 auto", color: copied ? AMBER : undefined }}>{copied ? <IconCheck size={14} /> : <IconCopy size={14} />}</button>
+              <button title="Скачать .md" aria-label="Скачать .md" onClick={download} className="cs-mini" style={{ flex: "0 0 auto" }}><IconDownload size={14} /></button>
+              {srcUrl && (
+                <a href={srcUrl} target="_blank" rel="noopener noreferrer" title="Открыть на YouTube" aria-label="Открыть на YouTube" className="cs-mini" style={{ flex: "0 0 auto", color: YT_BLUE, textDecoration: "none" }}><IconYoutube size={15} /></a>
+              )}
+            </div>
 
-          {/* Прогресс чтения — полоса под липкой шапкой */}
-          <div style={{ height: 3, background: CELL, boxShadow: "inset 0 1px 2px rgba(0,0,0,.4)", flex: "0 0 auto" }}>
-            <div style={{ height: "100%", width: `${progress * 100}%`, background: CTA, boxShadow: "inset 0 1px 0 rgba(255,255,255,.3)", transition: "width .1s linear" }} />
+            {/* Прогресс чтения — полоса под липкой шапкой */}
+            <div style={{ height: 3, background: CELL, boxShadow: "inset 0 1px 2px rgba(0,0,0,.4)" }}>
+              <div style={{ height: "100%", width: `${progress * 100}%`, background: CTA, boxShadow: "inset 0 1px 0 rgba(255,255,255,.3)", transition: "width .1s linear" }} />
+            </div>
           </div>
 
           {/* Контент 640 */}
           <div style={{ maxWidth: 640, width: "100%", margin: "0 auto", padding: "28px 24px 8px", boxSizing: "border-box" }}>
-            <SkelSwap
-              loading={loading}
-              skeleton={(
-                <div style={{ padding: "8px 0" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 16, color: MUT, font: `500 13px ${FONT_SANS}` }}>
-                    <Clogo size={18} busy /> Загрузка конспекта…
-                  </div>
-                  <Skeleton rows={[32, 14, 16, 74, 16, 16, 16, 16, 14, 16]} />
+            {loading ? (
+              <div style={{ padding: "8px 0" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 16, color: MUT, font: `500 13px ${FONT_SANS}` }}>
+                  <Clogo size={18} busy /> Загрузка конспекта…
                 </div>
-              )}
-            >
-              {err ? (
+                <Skeleton rows={[32, 14, 16, 74, 16, 16, 16, 16, 14, 16]} />
+              </div>
+            ) : err ? (
               <div style={{ padding: "40px 0", textAlign: "center", color: SEC, font: `500 14px ${FONT_SANS}` }}>{err}</div>
             ) : (
               <>
@@ -216,7 +212,7 @@ export function Read() {
                   {data?.durationSec != null && <span>видео {fmtDuration(data.durationSec)}</span>}
                   {data?.channel && (<><span style={{ color: DIM }}>·</span><span>{data.channel}</span></>)}
                   <><span style={{ color: DIM }}>·</span><span>{lang}</span></>
-                  {sv > 0 && (<><span style={{ color: DIM }}>·</span><span>сэкономлено</span><span style={{ color: OK }}>{sv} мин</span></>)}
+                  {sv > 0 && (<><span style={{ color: DIM }}>·</span><span>сохранено</span><span style={{ color: OK }}>{fmtSavedMin(sv)}</span></>)}
                 </div>
 
                 {/* Главная мысль — текстом, без обрамления (как в кабинете/попапе) */}
@@ -248,8 +244,7 @@ export function Read() {
                   <article className="md-body rd-body" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
                 </div>
               </>
-              )}
-            </SkelSwap>
+            )}
           </div>
         </div>
       </div>

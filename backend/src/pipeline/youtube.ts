@@ -11,7 +11,8 @@ export type VideoProbe = {
   title: string;
   channel: string;
   durationSec: number;
-  lang: string;
+  lang: string; // raw-ключ дорожки yt-dlp (для --sub-langs): "en", "ru-orig", "en-j3PyPqV-e1s"
+  langCode: string; // чистый базовый код (для меты и LLM-промпта): "en", "ru"
   hasManual: boolean;
   subsKind: "manual" | "auto";
 };
@@ -121,6 +122,7 @@ export function createYoutube(deps: Deps) {
       channel: j.channel ?? j.uploader ?? "",
       durationSec: Math.round(duration),
       lang,
+      langCode: lang.split(/[-.]/)[0],
       hasManual,
       subsKind: hasManual ? "manual" : "auto",
     };

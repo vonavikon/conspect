@@ -16,7 +16,7 @@ const youtube = createYoutube({ probeTimeoutSec: cfg.ytdlpProbeTimeoutSec, downl
 const transcript = createTranscript();
 const llm = createLlm({
   baseUrl: cfg.llmBaseUrl, apiKey: cfg.llmApiKey,
-  model: cfg.llmModel, maxTokens: cfg.maxTokens, timeoutSec: cfg.llmTimeoutSec,
+  model: cfg.llmModel, maxTokens: cfg.maxTokens, mergeMaxTokens: cfg.mergeMaxTokens, timeoutSec: cfg.llmTimeoutSec,
 });
 const orchestrator = createOrchestrator({ youtube, transcript, llm, maxDurationMin: cfg.maxDurationMin });
 

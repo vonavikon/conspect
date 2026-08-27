@@ -30,8 +30,8 @@ function Svg({ size = 16, style, title, strokeWidth = 1.7, linecap = "round", li
 
 // Монограмма-C: кольцо с малым сектором (вырез ~63° — оптический центр совпадает с
 // геометрическим). Хром-градиент. busy — статична: пульс идёт на обёртке
-// (.circle-badge.busy → cpulse в теме), сама C не вращается.
-// spin — отдельная опция для поверхностей с вращением (триггер на watch, feed-overlay):
+// (.circle-badge.busy = cpulse в теме), сама C не вращается.
+// spin — отдельная опция для поверхностей вне канона (триггер на watch, feed-overlay):
 // там busy-C крутится. Канонические контексты spin не передают.
 export function Clogo({ size = 20, busy = false, spin = false, style }: { size?: number; busy?: boolean; spin?: boolean; style?: CSSProperties }) {
   const s = Math.max(12, size);
@@ -46,7 +46,7 @@ export function Clogo({ size = 20, busy = false, spin = false, style }: { size?:
     >
       <defs>
         {/* Холодное серебро: металл логотипа одной природы с кругом-триггером и точками
-            секций. busy/spin — на обёртке, не в градиенте. */}
+            секций (.clogo/.metal radial). busy/spin анимируется на обёртке, не в градиенте. */}
         <linearGradient id="clogo-chrome" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="#ffffff" />
           <stop offset="22%" stopColor="#f0f0f2" />
@@ -79,8 +79,7 @@ export const IconDownload = (p: IconProps) => (
   </Svg>
 );
 
-// Часы для кабинета «сэкономлено» (.cab-saved): circle r9 cy12,
-// стрелки M12 6v6l4 2, stroke 1.8.
+// Часы для cab-saved кабинета: circle r9 cy12, стрелки M12 6v6l4 2, stroke 1.8.
 export const IconClock = (p: IconProps) => (
   <Svg {...p} strokeWidth={1.8}>
     <circle cx="12" cy="12" r="9" />
@@ -107,16 +106,18 @@ export const IconChevron = (p: IconProps) => (
   </Svg>
 );
 
-// Шестерёнка-«Настройки».
-export const IconSettings = (p: IconProps) => (
+// Иконка «личный кабинет» — силуэт человека (голова + плечи). Заменяет шестерёнку
+// в шапке попапа: страница опций стала кабинетом-архивом, а не техническим конфигом.
+export const IconUser = (p: IconProps) => (
   <Svg {...p}>
-    <circle cx="12" cy="12" r="3" />
-    <path d="M19.4 13a7.5 7.5 0 0 0 0-2l2-1.4-2-3.4-2.3 1a7.5 7.5 0 0 0-1.7-1L15 3h-4l-.4 2.8a7.5 7.5 0 0 0-1.7 1l-2.3-1-2 3.4L6.6 11a7.5 7.5 0 0 0 0 2l-2 1.4 2 3.4 2.3-1a7.5 7.5 0 0 0 1.7 1L11 21h4l.4-2.8a7.5 7.5 0 0 0 1.7-1l2.3 1 2-3.4z" />
+    <circle cx="12" cy="8" r="4" />
+    <path d="M4 21a8 8 0 0 1 16 0" />
   </Svg>
 );
 
 // Лупа-поиск для кабинета (.cab-search). Circle + ручка.
-// Здесь плоские концы (butt/miter), в отличие от часов cab-saved (round). stroke 1.8.
+// Канон НЕ задаёт stroke-linecap/linejoin → плоские концы (butt/miter), в отличие
+// от часов cab-saved (round). stroke 1.8.
 export const IconSearch = (p: IconProps) => (
   <Svg {...p} strokeWidth={1.8} linecap="butt" linejoin="miter">
     <circle cx="11" cy="11" r="7" />
@@ -152,6 +153,26 @@ export const IconTrash = (p: IconProps) => (
 export const IconArrowLeft = (p: IconProps) => (
   <Svg {...p}>
     <path d="M19 12H5M12 19l-7-7 7-7" />
+  </Svg>
+);
+
+// Круговая стрелка — «Обновить» (попап: перечитать статус подключения и «Недавние»).
+export const IconRefresh = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+    <path d="M21 3v5h-5" />
+  </Svg>
+);
+
+// Ручка перетаскивания (6 точек) — изменить порядок в очереди кабинета.
+export const IconGrip = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="9" cy="6" r="1.1" fill="currentColor" stroke="none" />
+    <circle cx="15" cy="6" r="1.1" fill="currentColor" stroke="none" />
+    <circle cx="9" cy="12" r="1.1" fill="currentColor" stroke="none" />
+    <circle cx="15" cy="12" r="1.1" fill="currentColor" stroke="none" />
+    <circle cx="9" cy="18" r="1.1" fill="currentColor" stroke="none" />
+    <circle cx="15" cy="18" r="1.1" fill="currentColor" stroke="none" />
   </Svg>
 );
 

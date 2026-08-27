@@ -7,7 +7,7 @@ import { mountShadow } from "./panel/shadowApp";
 import { TriggerButton } from "./panel/TriggerButton";
 import { FeedButton } from "./panel/FeedButton";
 import { ConspectPanel } from "./panel/ConspectPanel";
-import { closePanel, getPanelState, openPanel } from "./panel/panelStore";
+import { closePanel, getLastOpen, getPanelState, openPanel } from "./panel/panelStore";
 import { injectFonts } from "./lib/fonts";
 import { videoId } from "./panel/format";
 import type { Root } from "react-dom/client";
@@ -87,9 +87,60 @@ function injectTrigger(): void {
   sub.parentNode.insertBefore(triggerHost, sub.nextSibling);
   triggerRoot = mountShadow(triggerHost, <TriggerButton />).root;
   ensurePanelHost();
+  syncTriggerVisibility();
+}
+
+// YouTube при скролле сворачивает метадату и в ряде режимов делает её position:sticky/
+// fixed (ytd-watch-metadata / #above-the-fold). Кнопка-сиблинг #subscribe-button наследует
+// это и «уезжает» поверх контента, хотя должна уйти вместе с блоком. Прячем кнопку, пока
+// она в sticky/fixed-предке. Обычный скролл (блок ушёл из viewport) уносит её сам.
+function triggerIsStuck(host: HTMLElement): boolean {
+  let el: HTMLElement | null = host;
+  while (el && el !== document.documentElement) {
+    const pos = getComputedStyle(el).position;
+    if (pos === "sticky" || pos === "fixed") return true;
+    el = el.parentElement;
+  }
+  return false;
+}
+function syncTriggerVisibility(): void {
+  const host = document.getElementById(TRIGGER_HOST_ID) as HTMLElement | null;
+  if (!host) return;
+  host.style.visibility = triggerIsStuck(host) ? "hidden" : "";
+}
+let triggerVisRaf = 0;
+function scheduleSyncTriggerVisibility(): void {
+  if (triggerVisRaf) return;
+  triggerVisRaf = requestAnimationFrame(() => {
+    triggerVisRaf = 0;
+    syncTriggerVisibility();
+  });
 }
 
 const FEED_HOST_ID = "conspect-feed-host";
+
+// Щит клика по feed-кнопке: window-CAPTURE-слушатель перехватывает событие раньше
+// любых делегатов YouTube (даже раньше document-capture) и гасит его, а действие
+// (openPanel) выполняет сам. Обычный bubble-suppress на кнопке надёжен не всегда:
+// в части роллаутов YouTube карточка перекрывает кнопку hover-оверлеем (событие
+// вообще не доходит до кнопки) или слушает событие в capture-фазе раньше нас.
+// composedPath() виден сквозь открытый Shadow DOM; url лежит в data-cs-url хоста.
+// preventDefault не ставим на pointerdown: по спецификации Pointer Events он
+// подавляет совместимые mouse-события; click нужен щиту для экшена.
+function feedShield(e: Event): void {
+  const path = e.composedPath();
+  for (const node of path) {
+    if (node instanceof HTMLElement && node.id === FEED_HOST_ID) {
+      if (e.type !== "pointerdown") e.preventDefault();
+      e.stopPropagation();
+      if (e.type === "click") openPanel(node.dataset.csUrl ?? "");
+      return;
+    }
+  }
+}
+for (const t of ["pointerdown", "mousedown", "click", "auxclick"]) {
+  window.addEventListener(t, feedShield, true);
+}
 
 // Живые React-корни feed-кнопок. YouTube рециклит/выбрасывает карточки при скролле
 // и SPA-навигации; host уходит из DOM, но Shadow-корень + antd cssinjs-стили +
@@ -104,7 +155,8 @@ function pruneFeedRoots(): void {
   }
 }
 
-// Кнопка на карточках ленты/поиска/related (точка C1): overlay-пилюля на превью,
+// Кнопка на карточках ленты/поиска/related/плейлистов («Смотреть позже» = playlist?list=WL)
+// (точка C1): overlay-пилюля на превью,
 // клик запускает конспект того же URL через общую панель. ensurePanelHost — панель
 // нужна и на не-watch страницах (на watch её ставит injectTrigger). Селекторы
 // YouTube плывут — перебираем несколько типов карточек.
@@ -122,7 +174,7 @@ async function injectFeedButtons(): Promise<void> {
     ensurePanelHost();
     const cards = Array.from(
       document.querySelectorAll<HTMLElement>(
-        "ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer, yt-lockup-view-model"
+        "ytd-rich-item-renderer, ytd-video-renderer, ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-playlist-video-renderer, yt-lockup-view-model"
       ),
     );
     const BATCH = 20;
@@ -153,6 +205,18 @@ function thumbAnchor(card: HTMLElement): HTMLElement {
   );
 }
 
+// Ближайший предок, реально служащий containing block'ом для position:absolute-потомка:
+// генерирует box (не display:contents) и position != static. Нет такого — documentElement
+// (initial containing block). Нужен фолбэк-пути injectFeedCard, где кнопка на карточке.
+function containingBlock(el: HTMLElement): HTMLElement {
+  for (let e: HTMLElement | null = el; e; e = e.parentElement) {
+    const cs = getComputedStyle(e);
+    if (cs.display === "contents") continue;
+    if (cs.position !== "static") return e;
+  }
+  return document.documentElement;
+}
+
 // Одна карточка ленты/поиска/related: overlay-пилюля на превью.
 function injectFeedCard(card: HTMLElement): void {
   const link = card.querySelector<HTMLAnchorElement>(
@@ -172,23 +236,48 @@ function injectFeedCard(card: HTMLElement): void {
     feedRoots.delete(existing);
     existing.remove();
   }
-  // Кнопка на превью, но крепим к карточке, а не к thumbnail: иначе host попадал внутрь
-  // ссылки a#thumbnail (клик уходил в навигацию на видео) и под hover-оверлеи YouTube
-  // (mute/CC в поиске), которые его перекрывали. Координаты считаем от угла превью
-  // относительно карточки. Левый-верхний угол: правый-верхний в поиске занимают кнопки
-  // звука/субтитров, нижние — бейдж длительности и прогресс предпросмотра.
+  // Кнопку крепим к обёртке превью (ytd-thumbnail), а не к карточке: обёртка —
+  // реальный box, relative + left/top 8px держат кнопку в левом-верхнем углу превью.
+  // Новая вёрстка главной (yt-lockup-view-model) развернула дерево: yt-thumbnail-view-model
+  // лежит ВНУТРИ <a href="/watch">, и посадка кнопки в «обёртку» снова оказывалась
+  // посадкой в ссылку — клик уходил в навигацию на видео. closest("a") ловит оба случая
+  // посадки на/в ссылку (включая старый якорь a#thumbnail): тогда host крепим к РОДИТЕЛЮ
+  // ссылки, а офсет считаем от rect ссылки — родитель-холдер шире самой ссылки, простые
+  // 8px ставили бы кнопку мимо превью.
   const anchor = thumbAnchor(card);
-  const cardRect = card.getBoundingClientRect();
-  const thumbRect = anchor.getBoundingClientRect();
-  const left = Math.max(0, Math.round(thumbRect.left - cardRect.left + 8));
-  const top = Math.max(0, Math.round(thumbRect.top - cardRect.top + 8));
+  const insideA = anchor.closest("a");
+  const useThumb = anchor !== card && anchor.tagName !== "A" && !insideA;
+  const hostParent = useThumb ? anchor : ((insideA?.parentElement as HTMLElement | null) ?? card);
+
   const host = document.createElement("div");
   host.id = FEED_HOST_ID;
   host.dataset.csUrl = url;
+  let left = 8;
+  let top = 8;
+  if (!useThumb) {
+    if (getComputedStyle(hostParent).position === "static") {
+      hostParent.style.setProperty("position", "relative", "important");
+    }
+    // Офсет от containing block'а hostParent: он может быть display:contents
+    // (контейнеры новой вёрстки) и не принять relative — тогда блоком служит
+    // ближайший box выше по дереву. Считаем от hostParent, а не от host:
+    // host ещё не в дереве (appendChild ниже), его предки пусты, и containingBlock
+    // вернул бы documentElement — кнопка съезжала на главной.
+    const cb = containingBlock(hostParent);
+    const cbRect = cb.getBoundingClientRect();
+    const thumbRect = (insideA ?? anchor).getBoundingClientRect();
+    left = Math.max(0, Math.round(thumbRect.left - cbRect.left + 8));
+    top = Math.max(0, Math.round(thumbRect.top - cbRect.top + 8));
+  }
   host.style.cssText =
-    `position:absolute!important;left:${left}px!important;top:${top}px!important;z-index:2147483646!important;pointer-events:auto;display:block;width:32px;height:32px;`;
-  if (getComputedStyle(card).position === "static") card.style.setProperty("position", "relative", "important");
-  card.appendChild(host);
+    `position:absolute!important;left:${left}px!important;top:${top}px!important;z-index:100!important;pointer-events:auto;display:block;width:32px;height:32px;`;
+  if (getComputedStyle(hostParent).position === "static") {
+    hostParent.style.setProperty("position", "relative", "important");
+  }
+  // Скоуп stacking context на родителе, иначе z-index кнопки уходит на уровень страницы
+  // и она рисуется поверх fixed-шапки YouTube (masthead z-index 2020) при скролле.
+  hostParent.style.setProperty("isolation", "isolate", "important");
+  hostParent.appendChild(host);
   const { root } = mountShadow(host, <FeedButton url={url} />);
   feedRoots.set(host, root);
 }
@@ -238,13 +327,25 @@ function arm(): void {
 // иногда диспаттится без смены ролика).
 function onNavigate(): void {
   const st = getPanelState();
-  if (st.status !== "closed" && /[?&]v=/.test(location.href) && videoId(location.href) !== videoId(st.url)) {
+  const curId = /[?&]v=/.test(location.href) ? videoId(location.href) : null;
+  if (st.status !== "closed" && curId && curId !== videoId(st.url)) {
     closePanel();
+  }
+  // Автооткрытие (#8): вернулись на ролик, для которого недавно открывали конспект, а
+  // панель закрылась навигацией. Стрим в SW доиграл/доигрывает — openPanel вернёт снапшот
+  // (streaming/done). Ограничиваем 10 минутами, чтобы панель не всплывала сама спустя часы.
+  const last = getLastOpen();
+  if (st.status === "closed" && last.url && curId && curId === videoId(last.url) && Date.now() - last.at < 10 * 60 * 1000) {
+    openPanel(last.url);
   }
   arm();
 }
 document.addEventListener("yt-navigate-finish", onNavigate);
 window.addEventListener("load", arm);
+// Следим за «прилипанием» кнопки-триггера: если YouTube сделал её предок sticky/fixed
+// (сворачивание метадаты при скролле), прячем кнопку; вернулся обычный поток — показываем.
+window.addEventListener("scroll", scheduleSyncTriggerVisibility, { passive: true });
+window.addEventListener("resize", scheduleSyncTriggerVisibility);
 // YouTube мутирует DOM сотнями раз в секунду (плеер, тултипы, счётчики лайков).
 // Коалесцируем все инжекты одним таймером 150мс — иначе querySelectorAll по карточкам
 // и offsetParent-проверка триггера молотят layout на каждом муте. arm() сам коротит:

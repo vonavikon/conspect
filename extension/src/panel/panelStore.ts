@@ -15,13 +15,18 @@ type PanelStatus =
   | "loading"
   | "streaming"
   | "done"
-  | "error";
+  | "error"
+  | "cancelled"
+  | "queued";
 
 export type PanelState = {
   status: PanelStatus;
   url: string;
   text: string;
   meta: Meta;
+  progress: { i: number; n: number } | null;
+  startedAt: number | null; // epoch-мс старта — таймер loading считает от него
+  queuePos: number | null; // позиция в очереди (с 1), когда status === "queued"
   errorText: string;
 };
 
@@ -30,6 +35,9 @@ const initial: PanelState = {
   url: "",
   text: "",
   meta: {},
+  progress: null,
+  startedAt: null,
+  queuePos: null,
   errorText: "",
 };
 
@@ -62,6 +70,13 @@ let portId = 0;
 // url текущей панели: фильтр от снапшотов чужого стрима. При rotate на другой url SW
 // сначала пришлёт снапшот ещё-идущего старого стрима — пропускаем, ждём свой.
 let openedUrl = "";
+// Последний url, который открывали через openPanel. НЕ очищается closePanel: по нему
+// content-скрипт автооткрывает панель при возврате на ролик после SPA-навигации (#8).
+let lastUrl = "";
+let lastAt = 0;
+export function getLastOpen(): { url: string; at: number } {
+  return { url: lastUrl, at: lastAt };
+}
 // Видели ли уже не-idle состояние стрима. idle до этого — стартовый снапшот (до того,
 // как SW успел поставить loading), игнорируем, optimistic loading держим. idle после —
 // «остановлен без текста» → закрываем панель.
@@ -85,6 +100,7 @@ function scheduleTextFlush(): void {
 }
 
 function disconnectPort(): void {
+  stopKeepalive();
   if (!port) return;
   portId++; // инвалидировать слушатели этого порта
   const p = port;
@@ -96,6 +112,21 @@ function disconnectPort(): void {
   }
 }
 
+// Keepalive: SW умирает, если idle >~30с. Между meta и первым delta LLM «думает» над
+// большим транскриптом десятки секунд, шлются только ping-кадры — они не сбрасывают
+// idle-таймер SW, воркер умирает и порт рвётся. Сообщение по порту каждые 20с — событие
+// для SW, сбрасывает таймер и держит стрим живым до первого delta.
+let keepaliveTimer: ReturnType<typeof setInterval> | undefined;
+function startKeepalive(): void {
+  stopKeepalive();
+  keepaliveTimer = setInterval(() => {
+    try { port?.postMessage({ type: "keepalive" }); } catch { stopKeepalive(); }
+  }, 20000);
+}
+function stopKeepalive(): void {
+  if (keepaliveTimer !== undefined) { clearInterval(keepaliveTimer); keepaliveTimer = undefined; }
+}
+
 // SW → панель: {type:"state", ...StreamState}. Маппим в PanelState.
 type StreamSnap = {
   status: string;
@@ -105,6 +136,9 @@ type StreamSnap = {
   channel: string | null;
   durationSec: number | null;
   lang: string | null;
+  progress: { i: number; n: number } | null;
+  startedAt: number | null;
+  queue: { url: string; title?: string }[] | undefined;
   error: string;
   errorReason: string;
 };
@@ -116,8 +150,16 @@ function applyState(s: StreamSnap): void {
     if (seen) closePanel();
     return;
   }
-  // Снапшот чужого стрима при rotate — пропускаем, ждём свой.
-  if (s.url && openedUrl && s.url !== openedUrl) return;
+  // Снапшот чужого стрима при rotate — пропускаем, ждём свой. Но если наш url лежит в
+  // очереди — это не «чужой», а «ждём своей очереди» (#12): показываем позицию.
+  if (s.url && openedUrl && s.url !== openedUrl) {
+    const pos = (s.queue ?? []).findIndex((q) => q.url === openedUrl);
+    if (pos >= 0) {
+      seen = true;
+      set({ status: "queued", url: openedUrl, queuePos: pos + 1 });
+    }
+    return;
+  }
 
   seen = true;
   pendingText = s.text ?? "";
@@ -130,18 +172,25 @@ function applyState(s: StreamSnap): void {
 
   if (s.status === "error") {
     flushNow();
-    set({ status: "error", url: s.url, text: pendingText, meta, errorText: s.error || REASON_TEXT.exception });
+    set({ status: "error", url: s.url, text: pendingText, meta, progress: null, queuePos: null, errorText: s.error || REASON_TEXT.exception });
     return;
   }
   if (s.status === "done") {
     flushNow();
-    set({ status: "done", url: s.url, text: pendingText, meta });
+    set({ status: "done", url: s.url, text: pendingText, meta, progress: null, queuePos: null });
+    return;
+  }
+  if (s.status === "cancelled") {
+    // Остановлено без текста: показываем «Прервано». SW через ~2с сбросит в idle →
+    // панель закроется сама. startedAt сохраняем — таймер досчитает в карточке прерывания.
+    flushNow();
+    set({ status: "cancelled", url: s.url, text: "", meta, progress: null, startedAt: s.startedAt ?? null, queuePos: null, errorText: "" });
     return;
   }
   // loading / streaming. Растёт только текст (streaming→streaming) — throttle, без
   // лишнего ре-рендера; переход loading→streaming (первый delta) и смена meta — сразу.
   if (!(s.status === "streaming" && state.status === "streaming")) {
-    set({ status: s.status as PanelStatus, url: s.url, meta });
+    set({ status: s.status as PanelStatus, url: s.url, meta, progress: s.progress ?? null, startedAt: s.startedAt ?? null, queuePos: null });
   }
   scheduleTextFlush();
 }
@@ -151,11 +200,13 @@ export function openPanel(url: string): void {
   // перезапускаем, не моргаем. Смена видео или retry после ошибки — проходит. Idempotency
   // самого стрима (повторный start того же url) дополнительно страхует в streamStore.
   if (state.status !== "closed" && state.status !== "error" && state.url === url) return;
+  lastUrl = url;
+  lastAt = Date.now();
   openedUrl = url;
   seen = false;
   pendingText = "";
   flushNow();
-  set({ status: "loading", url, text: "", meta: {}, errorText: "" });
+  set({ status: "loading", url, text: "", meta: {}, progress: null, startedAt: null, queuePos: null, errorText: "" });
   disconnectPort(); // старый подписчик уходит; стрим в SW продолжается
   const my = ++portId;
   // connect бросает синхронно «Extension context invalidated», если вкладка держит
@@ -169,6 +220,7 @@ export function openPanel(url: string): void {
     return;
   }
   port = p;
+  startKeepalive();
   p.onMessage.addListener((m: StreamSnap) => {
     if (my !== portId) return;
     if (m && (m as { type?: string }).type === "state") applyState(m);
@@ -178,6 +230,7 @@ export function openPanel(url: string): void {
   p.onDisconnect.addListener(() => {
     if (my !== portId) return;
     port = null;
+    stopKeepalive();
     if (state.status === "loading" || state.status === "streaming") {
       set({ status: "error", errorText: REASON_TEXT.stream_closed });
     }
@@ -196,7 +249,7 @@ export function closePanel(): void {
   seen = false;
   openedUrl = "";
   disconnectPort();
-  set({ status: "closed", url: "", text: "", meta: {}, errorText: "" });
+  set({ status: "closed", url: "", text: "", meta: {}, queuePos: null, errorText: "" });
 }
 
 // Остановить генерацию по требованию пользователя. Кредит списан бэкендом при старте

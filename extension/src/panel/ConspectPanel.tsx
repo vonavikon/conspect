@@ -13,8 +13,8 @@ import { useSyncExternalStore } from "react";
 import { motion } from "framer-motion";
 import { renderMarkdown } from "../lib/markdown";
 import { closePanel, getPanelState, stopStream, subscribePanel } from "./panelStore";
-import { LoadingCard } from "../screens/cards";
-import { downloadBlob, fileName, fmtDuration, savedMinutes, splitTldr, wrapFrontmatter, type Meta } from "./format";
+import { LoadingCard, STAGES } from "../screens/cards";
+import { downloadBlob, fileName, fmtDuration, hashUrl, savedMinutes, splitTldr, wrapFrontmatter, type Meta } from "./format";
 import {
   BG,
   CARD,
@@ -33,15 +33,15 @@ import {
   SURFACE_HEAD,
   SHADOW_BADGE,
   TXT_SHADOW,
+  AMBER,
   skeuoCss,
   scanKeyframes,
   mdBodyCss,
   panelBodyCss,
   focusRingCss,
   reducedMotionCss,
-  swapCss,
 } from "../theme/conspectTheme";
-import { Clogo, IconCheck, IconChevron, IconClose, IconCopy, IconDownload, IconError, IconStop } from "../theme/icons";
+import { Clogo, IconCheck, IconChevron, IconClose, IconCopy, IconDownload, IconError, IconRead, IconStop } from "../theme/icons";
 
 const EASE_ARR: [number, number, number, number] = [0.22, 0.61, 0.36, 1];
 
@@ -116,6 +116,14 @@ export function ConspectPanel() {
     }
   }
 
+  // Открыть полную читалку (read.html) для готового конспекта. Полный markdown уже в
+  // кэше под hashUrl(url), read.html подтянет его из chrome.storage без сети.
+  // Контент-скрипт не имеет chrome.tabs — открытие вкладки идёт через SW (sendMessage).
+  function openRead(): void {
+    if (!s.url) return;
+    void chrome.runtime.sendMessage({ type: "openRead", urlHash: hashUrl(s.url), url: s.url });
+  }
+
   // C2: клик по таймкоду в теле → seek YouTube-плеера (document общий, видео — на странице).
   function onBodyClick(e: React.MouseEvent<HTMLDivElement>): void {
     const el = (e.target as HTMLElement).closest?.(".md-ts") as HTMLElement | null;
@@ -138,11 +146,10 @@ export function ConspectPanel() {
   return (
     <>
       <style>{skeuoCss}</style>
-      <style>{swapCss}</style>
       <style>{mdBodyCss}</style>
       <style>{panelBodyCss}</style>
       <style>{focusRingCss}</style>
-      <style>{`${scanKeyframes}@keyframes cs-fadein{from{opacity:0}to{opacity:1}}@keyframes cs-panel-in{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}@keyframes cpulse{0%,100%{box-shadow:0 0 0 4px rgba(245,166,35,.10),0 0 18px rgba(245,166,35,.28)}50%{box-shadow:0 0 0 6px rgba(245,166,35,.16),0 0 28px rgba(245,166,35,.45)}}`}</style>
+      <style>{`${scanKeyframes}@keyframes cs-fadein{from{opacity:0}to{opacity:1}}@keyframes cs-panel-in{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}@keyframes cpulse{0%,100%{box-shadow:0 0 0 4px rgba(245,166,35,.10),0 0 18px rgba(245,166,35,.28)}50%{box-shadow:0 0 0 6px rgba(245,166,35,.16),0 0 28px rgba(245,166,35,.45)}}@keyframes ccancel{0%,100%{box-shadow:0 0 0 4px rgba(226,92,92,.12),0 0 18px rgba(226,92,92,.3)}50%{box-shadow:0 0 0 6px rgba(226,92,92,.18),0 0 28px rgba(226,92,92,.5)}}`}</style>
       <style>{`
 .rp-head{display:flex;align-items:center;gap:8px;padding:10px 13px;border-bottom:1px solid ${BORDER};background:${SURFACE_HEAD};box-shadow:inset 0 1px 0 rgba(255,255,255,.08);}
 .rp-title{flex:1;min-width:0;font:700 12px/1.2 ${FONT_SANS};color:${TEXT};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:${TXT_SHADOW};}
@@ -154,6 +161,11 @@ export function ConspectPanel() {
 .rp-tldr-txt{font:500 11.5px/1.5 ${FONT_SANS};color:${SEC};text-align:left;}
 .rp-tldr-txt p{margin:0;}
 .cs-mini.stop svg rect{fill:currentColor;}
+/* × на свёрнутом круге: скрыть панель целиком, не разворачивая. Виден при ховере
+   круга (opacity), тач не нужен — desktop-расширение. focus-visible — с клавиатуры. */
+.cp-x{position:absolute;top:-6px;right:-6px;width:17px;height:17px;padding:0;display:grid;place-items:center;border-radius:50%;border:1px solid rgba(226,92,92,.6);background:#191113;color:#e25c5c;cursor:pointer;opacity:0;transition:opacity .15s ${EASE},background .15s ${EASE},color .15s ${EASE};}
+.cs-metal:hover .cp-x,.cp-x:focus-visible{opacity:1;}
+.cp-x:hover{background:#e25c5c;color:#16090b;border-color:#e25c5c;}
 .cs-metal.busy{animation:cpulse 1.8s ${EASE} infinite;}
 .rp-scroll::-webkit-scrollbar{width:6px;}
 .rp-scroll::-webkit-scrollbar-thumb{background:${LINE2};border-radius:3px;}
@@ -186,7 +198,7 @@ export function ConspectPanel() {
           {/* шапка: Clogo · title видео · свернуть · закрыть */}
           <div className="rp-head">
             <span style={{ display: "inline-flex", alignItems: "center" }}><Clogo size={16} /></span>
-            <span className="rp-title">{meta.title || "Конспект"}</span>
+            <span className="rp-title">{s.status === "queued" ? "В очереди" : meta.title || "Конспект"}</span>
             {busy && (
               <button className="cs-mini stop" title="Остановить" aria-label="Остановить" onClick={() => stopStream()}>
                 <IconStop size={16} />
@@ -199,7 +211,7 @@ export function ConspectPanel() {
                 aria-label={copied ? "Скопировано" : "Скопировать"}
                 onClick={async () => { if (await copy()) { setCopied(true); setTimeout(() => setCopied(false), 1400); } }}
               >
-                <span className={copied ? "cs-swap done" : "cs-swap"}><IconCopy size={16} /><IconCheck size={16} /></span>
+                {copied ? <IconCheck size={16} /> : <IconCopy size={16} />}
               </button>
             )}
             {done && (
@@ -225,11 +237,11 @@ export function ConspectPanel() {
             </button>
           </div>
 
-          {/* мета: видео MM:SS · сэкономлено N мин */}
+          {/* мета: видео MM:SS · сохранено N мин */}
           {!card && (meta.durationSec || sv > 0) && (
             <div className="rp-meta">
               {meta.durationSec ? <>видео {dur}</> : null}
-              {sv > 0 && <> · сэкономлено <span className="sv">{sv} мин</span></>}
+              {sv > 0 && <> · сохранено <span className="sv">{sv} мин</span></>}
             </div>
           )}
 
@@ -249,7 +261,29 @@ export function ConspectPanel() {
                 : { position: "relative", padding: "14px 16px", overflowY: "auto", overflowWrap: "anywhere", flex: 1, maxHeight: 330 }
             }
           >
-            {s.status === "loading" && <LoadingCard phase={phase} />}
+            {s.status === "loading" && <LoadingCard phase={phase} startedAt={s.startedAt} progress={s.progress} />}
+            {s.status === "queued" && (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, textAlign: "center", padding: "24px 6px" }}>
+                <div style={{ width: 38, height: 38, borderRadius: "50%", display: "grid", placeItems: "center", background: "linear-gradient(180deg,rgba(245,166,35,.18),rgba(245,166,35,.06))", border: "1px solid rgba(245,166,35,.35)", boxShadow: "inset 0 1px 0 rgba(255,255,255,.08), inset 0 -2px 4px rgba(0,0,0,.4), 0 2px 6px rgba(0,0,0,.4)", color: AMBER }}>
+                  <Clogo size={18} />
+                </div>
+                <div style={{ font: `600 13px ${FONT_SANS}`, color: TEXT }}>В очереди</div>
+                <div style={{ font: `500 11.5px/1.5 ${FONT_SANS}`, color: SEC, maxWidth: 280 }}>
+                  Позиция {s.queuePos ?? ""}. Конспект соберётся, когда освободится место.
+                </div>
+              </div>
+            )}
+            {s.status === "cancelled" && (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, textAlign: "center", padding: "24px 6px" }}>
+                <div style={{ width: 38, height: 38, borderRadius: "50%", display: "grid", placeItems: "center", background: "linear-gradient(180deg,rgba(226,92,92,.18),rgba(226,92,92,.06))", border: "1px solid rgba(226,92,92,.35)", boxShadow: "inset 0 1px 0 rgba(255,255,255,.08), inset 0 -2px 4px rgba(0,0,0,.4), 0 2px 6px rgba(0,0,0,.4)", color: ERR, animation: `ccancel .9s ${EASE} infinite` }}>
+                  <IconStop size={18} />
+                </div>
+                <div style={{ font: `600 13px ${FONT_SANS}`, color: TEXT }}>Прервано</div>
+                <div style={{ font: `500 11.5px/1.5 ${FONT_SANS}`, color: SEC, maxWidth: 280 }}>
+                  Остановлено на этапе «{STAGES[phase]}»
+                </div>
+              </div>
+            )}
             {showBody && (
               <div style={{ animation: `cs-fadein .35s ${EASE}`, width: "100%" }}>
                 {tldr && (
@@ -278,6 +312,13 @@ export function ConspectPanel() {
             )}
           </div>
 
+          {/* После готовности — «Читать полностью» открывает полную читалку read.html
+              (оглавление + прогресс чтения). Полный конспект уже в кэше. */}
+          {done && (
+            <div style={{ padding: "10px 13px 12px", borderTop: `1px solid ${LINE}` }}>
+              <button onClick={openRead} className="cs-btn filled block"><IconRead size={13} /> Читать полностью</button>
+            </div>
+          )}
         </div>
 
         {/* круг-C: свёрнутая панель (§05). Overlay по центру; fade-in при сворачивании. */}
@@ -297,6 +338,18 @@ export function ConspectPanel() {
             <span style={{ display: "inline-flex", transform: "translateX(3.8%)" }}>
               <Clogo size={26} busy={busy} />
             </span>
+            {/* Скрыть свёрнутую панель: раньше круг умел только разворачивать —
+                закрыть его с экрана без разворота было нельзя. stopPropagation,
+                иначе клик всплывёт к onClick круга и сначала развернёт панель.
+                Стрим не останавливаем: по дизайну SW доиграет его в фон и закэширует. */}
+            <button
+              className="cp-x"
+              title="Скрыть"
+              aria-label="Скрыть панель"
+              onClick={(e) => { e.stopPropagation(); closePanel(); }}
+            >
+              <IconClose size={9} />
+            </button>
           </div>
         </div>
       </motion.div>

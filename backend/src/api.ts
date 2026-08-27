@@ -75,6 +75,10 @@ export function createApp(deps: AppDeps) {
 
   app.get("/health", (c) => c.json({ ok: true, version: "1" }));
 
+  // Keepalive: расширение держит соединение живым короткими GET /ping. По прерыванию
+  // этих строк в логе видно, что service worker расширения уснул или закрылся.
+  app.get("/ping", (c) => c.json({ ok: true }));
+
   // Стриминг конспекта (SSE): meta → delta… → done. live-reveal в расширении +
   // длинные видео не падают по таймауту гейтвея (чанки летят непрерывно).
   app.post("/digest/stream", requireToken, bodyLimit({
@@ -139,6 +143,12 @@ export function createApp(deps: AppDeps) {
         let tokensIn = 0, tokensOut = 0;
         for await (const chunk of started.stream) {
           if (aborted) break;
+          // Прогресс чанкинга («часть i/N») — до первого delta merge, когда LLM ещё
+          // не стримит текст. Клиент показывает его в шапке загрузки.
+          if ("progress" in chunk) {
+            await stream.writeSSE({ event: "progress", data: JSON.stringify(chunk.progress) });
+            continue;
+          }
           // no_content приходит во время стрима: маркер ERROR: no-content от LLM.
           // Это не конспект — клиенту SSE error.
           if ("reason" in chunk) {

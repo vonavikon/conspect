@@ -19,7 +19,13 @@ const Env = z.object({
   LLM_BASE_URL: z.string().url(),
   LLM_MODEL: z.string().min(1, "LLM_MODEL is required"),
   MAX_TOKENS: boundedInt(1, 100000, 8192, "MAX_TOKENS"),
-  LLM_TIMEOUT_SEC: boundedInt(30, 600, 300, "LLM_TIMEOUT_SEC"),
+  // REDUCE-шаг чанкинга (merge) воспроизводит все секции дословно: для длинных видео
+  // это больше, чем нужно MAP-шагу. Отдельный лимит, чтобы merge не упирался в MAX_TOKENS.
+  MERGE_MAX_TOKENS: boundedInt(1, 100000, 32768, "MERGE_MAX_TOKENS"),
+  // 0 — таймаут отключён вовсе: IdleAbort не вооружает таймер, стрим живёт, пока
+  // провайдер держит соединение. Нужно для провайдеров, молчащих десятки минут
+  // на длинных транскриптах (bothub/deepseek после finish_reason=length).
+  LLM_TIMEOUT_SEC: boundedInt(0, 3600, 300, "LLM_TIMEOUT_SEC"),
 
   // Pipeline
   MAX_DURATION_MIN: boundedInt(1, 1440, 180, "MAX_DURATION_MIN"),
@@ -53,6 +59,7 @@ export type Config = {
   llmBaseUrl: string;
   llmModel: string;
   maxTokens: number;
+  mergeMaxTokens: number;
   llmTimeoutSec: number;
   maxDurationMin: number;
   ytdlpProbeTimeoutSec: number;
@@ -73,6 +80,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     llmBaseUrl: e.LLM_BASE_URL,
     llmModel: e.LLM_MODEL,
     maxTokens: e.MAX_TOKENS,
+    mergeMaxTokens: e.MERGE_MAX_TOKENS,
     llmTimeoutSec: e.LLM_TIMEOUT_SEC,
     maxDurationMin: e.MAX_DURATION_MIN,
     ytdlpProbeTimeoutSec: e.YTDLP_PROBE_TIMEOUT_SEC,

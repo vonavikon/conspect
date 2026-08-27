@@ -3,7 +3,7 @@
 // текущего статуса, дальше — каждое изменение. Стрим переживает закрытие окна: на
 // повторном открытии снапшот вернёт «идёт/готово» (#11/#16). start/stop — команды в SW.
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { StreamStatus } from "./streamStore";
+import type { StreamStatus, QueueItem } from "./streamStore";
 
 type StreamSnap = {
   status: StreamStatus;
@@ -16,9 +16,17 @@ type StreamSnap = {
   // отдельно от человекочитаемого error: попап должен уметь отличить «сервер не
   // настроен» от обычной ошибки и дать CTA в настройки, а не тупик.
   errorReason: string;
+  // Момент начала работы над url (epoch-мс: клик или постановка в очередь) — таймер
+  // считает от него, не сбрасывается при повторном открытии поверхности.
+  startedAt: number | null;
+  // Чанкинг: «часть i/N» в map-фазе длинного видео — прогресс-бар в loading-карточке.
+  progress: { i: number; n: number } | null;
+  // Очередь ожидающих url'ов (снимок, в порядке добавления). Кабинет показывает её
+  // и даёт удалять/переставлять — для этого поле и приходит в снапшот.
+  queue: QueueItem[];
 };
 
-const IDLE: StreamSnap = { status: "idle", url: "", text: "", title: null, phase: 0, error: "", errorReason: "" };
+const IDLE: StreamSnap = { status: "idle", url: "", text: "", title: null, phase: 0, error: "", errorReason: "", startedAt: null, progress: null, queue: [] };
 
 // Orphaning после обновления расширения: chrome.runtime.id становится undefined,
 // connect/sendMessage бросают «Extension context invalidated». Гuard перед вызовами.
@@ -30,7 +38,13 @@ function isExtensionContextValid(): boolean {
   }
 }
 
-export function useStream(): { s: StreamSnap; start: (url: string) => void; stop: () => void } {
+export function useStream(): {
+  s: StreamSnap;
+  start: (url: string) => void;
+  stop: () => void;
+  removeFromQueue: (url: string) => void;
+  reorderQueue: (fromIndex: number, toIndex: number) => void;
+} {
   const [s, setS] = useState<StreamSnap>(IDLE);
   const portRef = useRef<chrome.runtime.Port | null>(null);
   useEffect(() => {
@@ -43,7 +57,7 @@ export function useStream(): { s: StreamSnap; start: (url: string) => void; stop
       return;
     }
     portRef.current = port;
-    port.onMessage.addListener((m: { type?: string; status?: string; url?: string; text?: string; title?: string | null; phase?: 0 | 1 | 2; error?: string; errorReason?: string }) => {
+    port.onMessage.addListener((m: { type?: string; status?: string; url?: string; text?: string; title?: string | null; phase?: 0 | 1 | 2; error?: string; errorReason?: string; startedAt?: number | null; progress?: { i: number; n: number } | null; queue?: QueueItem[] }) => {
       if (!m || m.type !== "state") return;
       setS({
         status: (m.status as StreamStatus) ?? "idle",
@@ -53,6 +67,9 @@ export function useStream(): { s: StreamSnap; start: (url: string) => void; stop
         phase: (m.phase as 0 | 1 | 2) ?? 0,
         error: m.error ?? "",
         errorReason: m.errorReason ?? "",
+        startedAt: m.startedAt ?? null,
+        progress: m.progress ?? null,
+        queue: m.queue ?? [],
       });
     });
     // SW убил порт (terminator без активного стрима). Без onDisconnect хук зависал бы
@@ -60,7 +77,13 @@ export function useStream(): { s: StreamSnap; start: (url: string) => void; stop
     port.onDisconnect.addListener(() => {
       portRef.current = null;
     });
+    // Keepalive: держит SW живым во время долгого «первого токена» LLM — только
+    // ping-кадры не сбрасывают idle-таймер SW, воркер умирает и порт рвётся.
+    const ka = setInterval(() => {
+      try { port.postMessage({ type: "keepalive" }); } catch { /* порт ушёл */ }
+    }, 20000);
     return () => {
+      clearInterval(ka);
       try { port.disconnect(); } catch { /* уже */ }
       portRef.current = null;
     };
@@ -71,5 +94,11 @@ export function useStream(): { s: StreamSnap; start: (url: string) => void; stop
   const stop = useCallback(() => {
     try { portRef.current?.postMessage({ type: "stop" }); } catch { /* порт ушёл */ }
   }, []);
-  return { s, start, stop };
+  const removeFromQueue = useCallback((url: string) => {
+    try { portRef.current?.postMessage({ type: "removeFromQueue", url }); } catch { /* порт ушёл */ }
+  }, []);
+  const reorderQueue = useCallback((fromIndex: number, toIndex: number) => {
+    try { portRef.current?.postMessage({ type: "reorderQueue", fromIndex, toIndex }); } catch { /* порт ушёл */ }
+  }, []);
+  return { s, start, stop, removeFromQueue, reorderQueue };
 }

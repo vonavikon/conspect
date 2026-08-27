@@ -6,7 +6,7 @@ import DOMPurify from "dompurify";
 // дополнительно запрещаем style/iframe/embed — markdown они не нужны.
 marked.setOptions({ gfm: true, breaks: false });
 
-// mode задаёт оформление заголовков секций «## … (MM:SS)»:
+// mode задаёт оформление заголовков секций «## (MM:SS) …» (промпт) или «## … (MM:SS)»:
 //  • "panel"  — §07: таймкод исчезает, перед заголовком amber-точка (стиль .rp-h).
 //  • "reader" — §08: таймкод уходит в amber-бейдж .tc справа от заголовка (.rd-sh).
 //  • undefined (TL;DR-блоки) — заголовки не трогаются.
@@ -59,15 +59,19 @@ function wrapPanelSections(html: string): string {
   return container.innerHTML;
 }
 
-// «## Название (12:34)» → marked даёт <h2>Название (12:34)</h2>. На момент вызова
-// таймкод — ещё текст (linkTimecodes не бегал), регекс по строке безопасен.
-// clean — sanitize-нутый DOMPurify, label/тс берём из уже очищенного HTML.
+// «## (MM:SS) Название» (формат промпта) или «## Название (MM:SS)» → marked даёт
+// <h2>(MM:SS) Название</h2>. На момент вызова таймкод — ещё текст (linkTimecodes не
+// бегал), регекс по строке безопасен. clean — sanitize-нутый DOMPurify.
 function transformSectionHeadings(html: string, mode: "panel" | "reader"): string {
   return html.replace(/<h2(\s[^>]*)?>([\s\S]*?)<\/h2>/g, (whole, attrs: string | undefined, inner: string) => {
-    const m = inner.match(/^([\s\S]*?)\s*\((\d{1,2}:\d{2}(?::\d{2})?)\)\s*$/);
-    if (!m) return whole;
-    const label = m[1];
-    const tc = m[2];
+    // Таймкод в начале (промпт) или в конце (запасной разбор).
+    let label = inner;
+    let tc = "";
+    const lead = /^\(\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*\)\s*/.exec(inner);
+    const trail = /\s*\(\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*\)\s*$/.exec(inner);
+    if (lead) { tc = lead[1]; label = inner.slice(lead[0].length); }
+    else if (trail) { tc = trail[1]; label = inner.slice(0, trail.index); }
+    if (!tc) return whole;
     const a = attrs ?? "";
     if (mode === "panel") return `<h2${a}>${label}</h2>`;
     return `<h2${a}><span class="tc">${tc}</span><span class="rd-sh-t">${label}</span></h2>`;

@@ -20,7 +20,9 @@ export type Digest = {
 };
 
 const SETTINGS_KEY = "conspect_settings_v1";
-const DIGESTS_KEY = "conspect_digests_v1";
+// Ключ кэша конспектов экспортируем: кабинет (options.tsx) слушает chrome.storage.onChanged
+// по нему, чтобы архив обновлялся live, когда SW дописывает готовый конспект в кэш.
+export const DIGESTS_KEY = "conspect_digests_v1";
 const MAX_DIGESTS = 50;
 
 export async function loadSettings(): Promise<Settings> {

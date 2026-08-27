@@ -1,6 +1,6 @@
 // Общие карточки экранов: переиспользуются панелью (ConspectPanel, Shadow DOM).
 // Чистый inline-стиль + дизайн-токены, без antd — чтобы работать и в Shadow DOM панели.
-import { useEffect, useState, type ReactNode, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import { Clogo } from "../theme/icons";
 import {
   AMBER,
@@ -14,18 +14,16 @@ import {
   SEC,
   TEXT,
   YT_BLUE,
-  dchkCss,
   focusRingCss,
   reducedMotionCss,
-  revealCss,
   scanKeyframes,
   skeuoCss,
 } from "../theme/conspectTheme";
 
 // ---------- §06 Loading: пул фактов + хуки ----------
-// 16 фактов о чтении и внимании. [[…]] — подсветка ключевого фрагмента.
-// Разбор через сплит → React-узлы, без dangerouslySetInnerHTML: факты — литералы
-// compile-time, но так безопаснее.
+// 16 фактов с выдумками вычищены, грамматика причёсана. [[…]] — подсветка ключевого
+// фрагмента (класс .q). Разбор через сплит → React-узлы, без dangerouslySetInnerHTML:
+// факты — литералы compile-time, но так безопаснее.
 const LOADING_FACTS: string[] = [
   // Скорость
   "Чтение структурированного текста быстрее просмотра видео примерно в [[10 раз]].",
@@ -64,45 +62,41 @@ function renderFact(s: string): ReactNode[] {
     });
 }
 
-// Таймер длительности запроса «M:SS». В реальном запуске стартует с 0:00 и считает
-// вверх всё время, пока висит LoadingCard. resetKey (по умолчанию константа) обнуляет
-// таймер при смене конспекта; фазы (SSE) его не сбрасывают — «сколько уже идёт».
-function useElapsed(resetKey: unknown = 0, start = 0): string {
-  const [s, setS] = useState(start);
+// Таймер длительности запроса «M:SS», привязанный к реальному времени старта стрима
+// (startedAt из SW). Считает от startedAt, а не от mount: повторное открытие панели или
+// попапа не сбрасывает счётчик. Без startedAt (до прихода снапшота) — от mount.
+function useElapsed(startedAt: number | null): string {
+  const mountAt = useRef(Date.now());
+  const [now, setNow] = useState(Date.now());
   useEffect(() => {
-    setS(start);
-    const t0 = Date.now();
-    const id = setInterval(() => setS(start + Math.floor((Date.now() - t0) / 1000)), 1000);
+    const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [resetKey, start]);
+  }, []);
+  const t0 = startedAt ?? mountAt.current;
+  const s = Math.max(0, Math.floor((now - t0) / 1000));
   const m = Math.floor(s / 60);
   return `${m}:${String(s % 60).padStart(2, "0")}`;
 }
 
-// Ротация фактов (6с на факт, как в макете). Смена — три фазы (transitions.dev
-// «Text states swap»): exit вверх в blur → смена текста → вход снизу через 40мс-фиксацию
-// стартового состояния (is-enter без transition, затем снятие класса запускает переход).
+// Ротация фактов (6с на факт, как в макете). fade через opacity 300мс.
 function useFact(): ReactNode {
   const [i, setI] = useState(0);
-  const [ph, setPh] = useState<"idle" | "exit" | "enter">("idle");
+  const [shown, setShown] = useState(true);
   useEffect(() => {
-    let t1: ReturnType<typeof setTimeout> | undefined;
-    let t2: ReturnType<typeof setTimeout> | undefined;
+    let fade: ReturnType<typeof setTimeout> | undefined;
     const id = setInterval(() => {
-      setPh("exit");
-      t1 = setTimeout(() => {
+      setShown(false);
+      fade = setTimeout(() => {
         setI((v) => (v + 1) % LOADING_FACTS.length);
-        setPh("enter");
-        t2 = setTimeout(() => setPh("idle"), 40);
-      }, 200);
+        setShown(true);
+      }, 300);
     }, 6000);
     return () => {
       clearInterval(id);
-      if (t1) clearTimeout(t1);
-      if (t2) clearTimeout(t2);
+      if (fade) clearTimeout(fade);
     };
   }, []);
-  return <span className={`cs-fact${ph === "exit" ? " is-exit" : ph === "enter" ? " is-enter" : ""}`}>{renderFact(LOADING_FACTS[i])}</span>;
+  return <span style={{ opacity: shown ? 1 : 0, transition: `opacity .3s ${EASE}` }}>{renderFact(LOADING_FACTS[i])}</span>;
 }
 
 const loadingCss = `
@@ -114,22 +108,25 @@ const loadingCss = `
 .cs-stages{display:flex;flex-direction:column;gap:7px;margin-top:2px;align-items:stretch;width:100%;}
 .cs-stage{transition:color .3s ${EASE}}
 .cs-stage .cs-st-ico{line-height:0}
-.cs-stage.done .cs-st-ico{color:#0d2418}
+.cs-stage.done .cs-st-ico{font:800 13px/1 ${FONT_SANS};color:#0d2418}
 .cs-stage.active .cs-st-ico::after{content:"";width:8px;height:8px;border-radius:50%;background:conic-gradient(from 0deg, ${BG} 0%, ${BG} 30%, transparent 70%);animation:cs-cspin .8s linear infinite}
 .cs-stage.pending .cs-st-ico::after{content:"";width:6px;height:6px;border-radius:50%;background:${MUT};opacity:.55}
 @keyframes cs-cspin{to{transform:rotate(360deg)}}
 @keyframes cs-factin{to{opacity:1}}
-.cs-fact{display:inline-block;transition:opacity .2s ease-in-out,filter .2s ease-in-out,translate .2s ease-in-out}
-.cs-fact.is-exit{opacity:0;filter:blur(2px);translate:0 -4px}
-.cs-fact.is-enter{opacity:0;filter:blur(2px);translate:0 4px;transition:none}
 .cs-load-top{display:flex;align-items:center;gap:9px;}
 .cs-load-txt{font:500 13px/1.2 ${FONT_SANS};color:${TEXT};}
 .cs-load-timer{font:600 12px/1 ${FONT_MONO};color:${AMBER};background:none;border:0;padding:0;}
 .cs-load-steps{display:flex;flex-direction:column;align-items:stretch;gap:10px;margin-top:6px;}
 .cs-load-steps-top{justify-content:space-between;}
 .cs-load-c{position:absolute;left:0;right:0;top:0;bottom:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:0 20px;}
-.cs-load-fact{position:absolute;left:0;right:0;bottom:0;padding:10px 16px 12px;text-align:left;font:500 11.5px/1.5 ${FONT_SANS};color:${SEC};border-top:1px solid ${LINE};background:rgba(15,15,15,.45);opacity:0;animation:cs-factin .6s ${EASE} 1.2s forwards;}
+.cs-load-fact{position:absolute;left:0;right:0;bottom:0;padding:10px 16px 12px;text-align:center;font:500 11.5px/1.5 ${FONT_SANS};color:${SEC};border-top:1px solid ${LINE};background:rgba(15,15,15,.45);opacity:0;animation:cs-factin .6s ${EASE} 1.2s forwards;}
 .cs-load-scan{position:absolute;left:0;right:0;height:60px;background:linear-gradient(180deg,transparent,rgba(245,166,35,.16),transparent);animation:cs-scan 2.6s linear infinite;}
+/* Прогресс чанкинга (map-фаза длинного видео): тонкая полоса i/N под стадиями.
+   Появляется с первым progress-событием бэкенда, исчезает на первом delta (сборка). */
+.cs-prog{display:flex;flex-direction:column;gap:4px;margin-top:8px;width:100%;}
+.cs-prog-bar{height:3px;border-radius:2px;background:${LINE};overflow:hidden;}
+.cs-prog-bar i{display:block;height:100%;background:${YT_BLUE};transition:width .4s ${EASE};}
+.cs-prog-txt{font:500 10px/1 ${FONT_MONO};color:${MUT};}
 `;
 
 // LoadingCard §06: загрузка живёт прямо в теле панели (§06 внутри §07) — без собственной
@@ -137,14 +134,29 @@ const loadingCss = `
 // по фазам SSE: 0 (до meta — «Скачиваю субтитры»), 1 (meta — «Анализирую»), 2 (пошёл delta —
 // «Собираю конспект»). Бэкенд не сообщает точные статусы, поэтому стадии — индикатор по
 // событиям потока, не реальный прогресс этапов.
-const STAGES = ["Скачиваю субтитры", "Анализирую", "Собираю конспект"];
-export function LoadingCard({ phase = 0 }: { phase?: 0 | 1 | 2 }) {
-  const elapsed = useElapsed();
+export const STAGES = ["Скачиваю субтитры", "Анализирую", "Собираю конспект"];
+
+// Общий блок прогресса чанкинга: тонкая полоса + «Фрагмент i из N». n<=1 — короткое
+// видео без чанков, полоса не нужна. Бэкенд шлёт progress в map-фазе; на первом delta
+// SW обнуляет его — полоса уходит, стадии переключаются на «Собираю конспект».
+function ProgressLine({ progress }: { progress?: { i: number; n: number } | null }) {
+  if (!progress || progress.n <= 1 || progress.i < 1) return null;
+  const pct = Math.min(100, Math.round((progress.i / progress.n) * 100));
+  return (
+    <div className="cs-prog">
+      <div className="cs-prog-bar"><i style={{ width: `${pct}%` }} /></div>
+      <span className="cs-prog-txt">Фрагмент {progress.i} из {progress.n} · {pct}%</span>
+    </div>
+  );
+}
+
+export function LoadingCard({ phase = 0, startedAt = null, progress = null }: { phase?: 0 | 1 | 2; startedAt?: number | null; progress?: { i: number; n: number } | null }) {
+  const elapsed = useElapsed(startedAt);
   const fact = useFact();
   const rootStyle: CSSProperties = { width: "100%", height: "100%", minHeight: 340, background: "transparent", border: "none", borderRadius: 0, overflow: "hidden", position: "relative", boxShadow: "none" };
   return (
     <>
-      <style>{`${skeuoCss}${dchkCss}${focusRingCss}${reducedMotionCss}${loadingCss}${scanKeyframes}`}</style>
+      <style>{`${skeuoCss}${focusRingCss}${reducedMotionCss}${loadingCss}${scanKeyframes}`}</style>
       <div
         className="cs-load-card"
         role="status"
@@ -167,16 +179,13 @@ export function LoadingCard({ phase = 0 }: { phase?: 0 | 1 | 2 }) {
                 const st = i < phase ? "done" : i === phase ? "active" : "pending";
                 return (
                   <div key={label} className={`cs-stage ${st}`} aria-current={st === "active" ? "step" : undefined}>
-                    <span className="cs-st-ico">{st === "done" ? (
-                    <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="cs-dchk" aria-hidden="true">
-                      <path d="M4 8.6l2.7 2.7 5.3-5.6" pathLength="100" />
-                    </svg>
-                  ) : null}</span>
+                    <span className="cs-st-ico">{st === "done" ? "✓" : null}</span>
                     {label}
                   </div>
                 );
               })}
             </div>
+            <ProgressLine progress={progress} />
           </div>
         </div>
         <div className="cs-load-fact">
@@ -191,12 +200,12 @@ export function LoadingCard({ phase = 0 }: { phase?: 0 | 1 | 2 }) {
 // обёртки — в нормальном потоке. Для попапа при генерации по ссылке: loading живёт прямо
 // в pop-body, без «рамки в рамке». Без Clogo в заголовке — в попапе он уже виден в шапке.
 // Переиспользует loadingCss (.cs-stage/.cs-load-*) из LoadingCard.
-export function LoadingInline({ phase = 0 }: { phase?: 0 | 1 | 2 }) {
-  const elapsed = useElapsed();
+export function LoadingInline({ phase = 0, startedAt = null, progress = null }: { phase?: 0 | 1 | 2; startedAt?: number | null; progress?: { i: number; n: number } | null }) {
+  const elapsed = useElapsed(startedAt);
   const fact = useFact();
   return (
     <>
-      <style>{`${skeuoCss}${dchkCss}${focusRingCss}${reducedMotionCss}${loadingCss}`}</style>
+      <style>{`${skeuoCss}${focusRingCss}${reducedMotionCss}${loadingCss}`}</style>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "stretch", gap: 10, width: "100%" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 9 }}>
           <span style={{ font: `500 13px/1.2 ${FONT_SANS}`, color: TEXT }}>Готовлю Conspect…</span>
@@ -207,17 +216,14 @@ export function LoadingInline({ phase = 0 }: { phase?: 0 | 1 | 2 }) {
             const st = i < phase ? "done" : i === phase ? "active" : "pending";
             return (
               <div key={label} className={`cs-stage ${st}`} aria-current={st === "active" ? "step" : undefined}>
-                <span className="cs-st-ico">{st === "done" ? (
-                  <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="cs-dchk" aria-hidden="true">
-                    <path d="M4 8.6l2.7 2.7 5.3-5.6" pathLength="100" />
-                  </svg>
-                ) : null}</span>
+                <span className="cs-st-ico">{st === "done" ? "✓" : null}</span>
                 {label}
               </div>
             );
           })}
         </div>
-        <div style={{ font: `500 11.5px/1.5 ${FONT_SANS}`, color: SEC, borderTop: `1px solid ${LINE}`, paddingTop: 9 }}>
+        <ProgressLine progress={progress} />
+        <div style={{ font: `500 11.5px/1.5 ${FONT_SANS}`, color: SEC, borderTop: `1px solid ${LINE}`, paddingTop: 9, textAlign: "center" }}>
           {fact}
         </div>
       </div>
@@ -245,36 +251,6 @@ export function Skeleton({ rows }: { rows: number[] }) {
           const w = i === 0 ? "58%" : i === rows.length - 1 ? "72%" : "100%";
           return <div key={i} className="cs-sk" style={{ height: h, width: w }} />;
         })}
-      </div>
-    </>
-  );
-}
-
-// Кросс-фейд skeleton → контент (transitions.dev №14 «Skeleton reveal»): при готовности
-// данных контент входит из blur (.cs-skel-in), скелет доигрывает уход (.cs-skel-out)
-// ещё 320мс поверх начала контента и размонтируется. При повторной загрузке скелет
-// возвращается в поток мгновенно, без анимации реверса (is-resetting механика рецепта).
-// Слои у нас разной высоты (скелет — грубый набросок контента), поэтому absolute-стек
-// рецепта применяется только к фазе ухода; пока loading — скелет в обычном потоке.
-export function SkelSwap({ loading, skeleton, children }: { loading: boolean; skeleton: ReactNode; children: ReactNode }) {
-  const [hold, setHold] = useState(true);
-  useEffect(() => {
-    if (loading) { setHold(true); return; }
-    const t = setTimeout(() => setHold(false), 320);
-    return () => clearTimeout(t);
-  }, [loading]);
-  return (
-    <>
-      <style>{revealCss}{reducedMotionCss}</style>
-      <div style={{ position: "relative" }}>
-        {(loading || hold) && (
-          <div className={loading ? undefined : "cs-skel-out"} style={loading ? undefined : { position: "absolute", inset: "0 0 auto 0", zIndex: 1 }}>
-            {skeleton}
-          </div>
-        )}
-        {!loading && (
-          <div className="cs-skel-in" style={{ position: "relative", zIndex: 2 }}>{children}</div>
-        )}
       </div>
     </>
   );

@@ -10,6 +10,8 @@ type Transcript = { clean(a: { srtPath: string; outPath: string; title: string; 
 type Llm = {
   conspectus(meta: { title: string; channel: string; durationSec: number; source: string; lang: string }, transcript: string): Promise<{ text: string; tokensIn: number; tokensOut: number }>;
   conspectusStream(meta: { title: string; channel: string; durationSec: number; source: string; lang: string }, transcript: string, signal?: AbortSignal): AsyncGenerator<{ delta?: string; usage?: { tokensIn: number; tokensOut: number } }>;
+  sectionize(meta: { title: string; channel: string; durationSec: number; source: string; lang: string }, chunkText: string): Promise<{ text: string; tokensIn: number; tokensOut: number }>;
+  mergeStream(meta: { title: string; channel: string; durationSec: number; source: string; lang: string }, sectionsText: string, signal?: AbortSignal): AsyncGenerator<{ delta?: string; usage?: { tokensIn: number; tokensOut: number } }>;
 };
 
 export type DigestOutcome =
@@ -22,11 +24,37 @@ export type DigestOutcome =
 export type StreamChunk =
   | { delta?: string }
   | { reason: "no_content" }
-  | { usage?: { tokensIn: number; tokensOut: number } };
+  | { usage?: { tokensIn: number; tokensOut: number } }
+  | { progress: { i: number; n: number } };
 
 export type DigestStreamOutcome =
   | { ok: true; meta: { title: string; channel: string; durationSec: number; lang: string; source: string }; stream: AsyncGenerator<StreamChunk> }
   | { ok: false; reason: "invalid_url" | "too_long" | "no_captions" | "unavailable" | "empty_transcript" };
+
+// Порог чанкинга (символов транскрипта) и размер куска. 50k ≈ 12-13k токенов — безопасно
+// для контекста большинства моделей; выше — риск выхода за input-лимит. Размер куска 20k
+// держит один map-вызов в рамках контекста с запасом на промпт и ответ.
+const CHUNK_THRESHOLD_CHARS = 50000;
+const CHUNK_SIZE_CHARS = 20000;
+
+// Режем транскрипт на куски по границам таймкодов [MM:SS]. Граница — строка, начинающаяся
+// с «[». Накопив >= chunkChars, закрываем кусок на ближайшем маркере, чтобы таймкод в
+// заголовке секции ссылался на реальную строку транскрипта, а не на середину фразы.
+function splitTranscript(transcript: string, chunkChars = CHUNK_SIZE_CHARS): string[] {
+  const lines = transcript.split("\n");
+  const chunks: string[] = [];
+  let cur = "";
+  for (const line of lines) {
+    const isMarker = /^\[/.test(line.trimStart());
+    if (cur && isMarker && cur.length >= chunkChars) {
+      chunks.push(cur);
+      cur = "";
+    }
+    cur += line + "\n";
+  }
+  if (cur.trim()) chunks.push(cur);
+  return chunks;
+}
 
 type Deps = { youtube: Youtube; transcript: Transcript; llm: Llm; maxDurationMin: number; workDir?: string };
 
@@ -61,7 +89,7 @@ export function createOrchestrator(deps: Deps) {
           srtPath, outPath: transcriptPath,
           title: probe.title, source: url, channel: probe.channel,
           duration: `${Math.max(1, Math.round(probe.durationSec / 60))} min`,
-          lang: probe.lang,
+          lang: probe.langCode,
         }); }
         catch { console.error("[digest] transcript failed"); return { ok: false, reason: "empty_transcript" }; }
 
@@ -69,7 +97,7 @@ export function createOrchestrator(deps: Deps) {
 
         let text: string, tokensIn: number, tokensOut: number;
         try { ({ text, tokensIn, tokensOut } = await deps.llm.conspectus(
-          { title: probe.title, channel: probe.channel, durationSec: probe.durationSec, source: url, lang: probe.lang },
+          { title: probe.title, channel: probe.channel, durationSec: probe.durationSec, source: url, lang: probe.langCode },
           transcript,
         )); }
         catch { console.error("[digest] conspectus failed"); return { ok: false, reason: "conspectus_failed" }; }
@@ -80,7 +108,7 @@ export function createOrchestrator(deps: Deps) {
 
         return {
           ok: true,
-          meta: { title: probe.title, channel: probe.channel, durationSec: probe.durationSec, lang: probe.lang, source: url },
+          meta: { title: probe.title, channel: probe.channel, durationSec: probe.durationSec, lang: probe.langCode, source: url },
           conspectus: text, tokensIn, tokensOut,
         };
       } finally {
@@ -116,7 +144,7 @@ export function createOrchestrator(deps: Deps) {
             srtPath, outPath: path.join(dir, "transcript.md"),
             title: probe.title, source: url, channel: probe.channel,
             duration: `${Math.max(1, Math.round(probe.durationSec / 60))} min`,
-            lang: probe.lang,
+            lang: probe.langCode,
           });
         } catch (e) { console.error("[digest] transcript failed:", e); return { ok: false, reason: "empty_transcript" }; }
       } finally {
@@ -125,13 +153,48 @@ export function createOrchestrator(deps: Deps) {
 
       if (!transcript.trim()) return { ok: false, reason: "empty_transcript" };
 
-      const meta = { title: probe.title, channel: probe.channel, durationSec: probe.durationSec, lang: probe.lang, source: url };
-      const raw = deps.llm.conspectusStream(
-        { title: probe.title, channel: probe.channel, durationSec: probe.durationSec, source: url, lang: probe.lang },
-        transcript,
-        signal,
-      );
-      return { ok: true, meta, stream: noContentGuard(raw) };
+      const meta = { title: probe.title, channel: probe.channel, durationSec: probe.durationSec, lang: probe.langCode, source: url };
+
+      // Короткий транскрипт — прежний путь: один LLM-вызов, живой стрим.
+      if (transcript.length <= CHUNK_THRESHOLD_CHARS) {
+        const raw = deps.llm.conspectusStream(
+          { title: probe.title, channel: probe.channel, durationSec: probe.durationSec, source: url, lang: probe.langCode },
+          transcript,
+          signal,
+        );
+        return { ok: true, meta, stream: noContentGuard(raw) };
+      }
+
+      // Длинный транскрипт — map-reduce: каждый кусок в секции (молча), затем merge-сборка
+      // стримится. Прогресс «часть i/N» идёт отдельными чанками до первого delta merge.
+      // Токены map-фазы (sectionize) прибавляем к расходу merge — иначе done занижает счёт.
+      const chunks = splitTranscript(transcript);
+      async function* chunked(): AsyncGenerator<StreamChunk> {
+        const sections: string[] = [];
+        let mapIn = 0, mapOut = 0;
+        for (let i = 0; i < chunks.length; i++) {
+          yield { progress: { i: i + 1, n: chunks.length } };
+          const s = await deps.llm.sectionize(
+            { title: probe.title, channel: probe.channel, durationSec: probe.durationSec, source: url, lang: probe.langCode },
+            chunks[i],
+          );
+          sections.push(s.text);
+          mapIn += s.tokensIn;
+          mapOut += s.tokensOut;
+        }
+        for await (const chunk of noContentGuard(deps.llm.mergeStream(
+          { title: probe.title, channel: probe.channel, durationSec: probe.durationSec, source: url, lang: probe.langCode },
+          sections.join("\n\n"),
+          signal,
+        ))) {
+          if ("usage" in chunk && chunk.usage) {
+            yield { usage: { tokensIn: chunk.usage.tokensIn + mapIn, tokensOut: chunk.usage.tokensOut + mapOut } };
+          } else {
+            yield chunk;
+          }
+        }
+      }
+      return { ok: true, meta, stream: chunked() };
     },
   };
 }

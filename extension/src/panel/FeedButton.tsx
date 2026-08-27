@@ -6,34 +6,50 @@
 //
 // busy/done считаются по videoId текущего состояния панели: на ленте много карточек,
 // крутиться должна только та, чей ролик сейчас обрабатывается (не все разом).
+// done, кроме живого стрима, приходит из локального кэша конспектов — видео,
+// обработанное раньше (даже в прошлой сессии браузера), сразу зелёное.
 // Состояния: default/busy — серебряный .cs-metal, busy поверх крутит C, done — зелёный
 // skeuo-диск (CANON .stage.done .ico) перекрывает серебро.
-import { useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { getPanelState, openPanel, subscribePanel } from "./panelStore";
-import { dchkCss, focusRingCss, reducedMotionCss, skeuoCss, spinKeyframes, swapCss } from "../theme/conspectTheme";
+import { getDigest } from "../lib/store";
+import { focusRingCss, reducedMotionCss, skeuoCss, spinKeyframes } from "../theme/conspectTheme";
 import { Clogo } from "../theme/icons";
-import { videoId } from "./format";
+import { hashUrl, videoId } from "./format";
 
 export function FeedButton({ url }: { url: string }) {
   const st = useSyncExternalStore(subscribePanel, getPanelState);
   const mine = videoId(st.url) === videoId(url);
   const busy = mine && (st.status === "loading" || st.status === "streaming");
-  const done = mine && st.status === "done";
+  // Кэш конспектов персистентный (chrome.storage.local) — зелёный «готово» должен
+  // переживать перезапуск браузера и SW, а не только жить в state текущего стрима.
+  // Читаем один раз на url (карточки ленты рециклятся, но url на карточке стабилен).
+  const [cached, setCached] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    getDigest(hashUrl(url))
+      .then((d) => { if (alive) setCached(!!d && !!d.markdown.trim()); })
+      .catch(() => { /* кэш недоступен — просто без индикации */ });
+    return () => { alive = false; };
+  }, [url]);
+  const done = (mine && st.status === "done") || cached;
 
   return (
     <>
-      <style>{skeuoCss}{swapCss}{dchkCss}{spinKeyframes}{focusRingCss}{reducedMotionCss}</style>
+      <style>{skeuoCss}{spinKeyframes}{focusRingCss}{reducedMotionCss}</style>
       <button
         className="cs-metal"
-        // YouTube начинает SPA-навигацию по карточке на pointerdown/mousedown,
-        // раньше click. preventDefault+stopPropagation на самом click её уже не
-        // гасит → видео открывается вместе с панелью. На главной (home) навигация
-        // стартует ещё раньше — на pointerdown (hover-to-play превью), поэтому
-        // глушим и его. preventDefault на pointerdown не зовём: он отменил бы
-        // последующий mousedown/click, и наш onClick (openPanel) не сработал бы.
+        // YouTube навигирует карточку документ-делегатом: клик в любую точку превью
+        // (включая нашу кнопку) уходит в /watch, даже если кнопка лежит вне <a>.
+        // pointerdown — самый ранний перехват: гасим его внутри shadow root, до
+        // выхода в light DOM, чтобы YT-делегаты документа его не увидели.
+        // preventDefault НЕ ставим: без дефолтного pointerdown браузер не собирает
+        // click, а click — наш рабочий обработчик открытия панели.
         onPointerDown={(e) => {
           e.stopPropagation();
         }}
+        // mousedown дублирует глушение для мышиных делегатов YT (слушает mousedown,
+        // не pointerdown). preventDefault здесь не мешает click на кнопке.
         onMouseDown={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -62,15 +78,7 @@ export function FeedButton({ url }: { url: string }) {
             : null),
         }}
       >
-        {/* done: Clogo уходит в blur (icon swap №09), чек прорисовывается stroke-draw
-            (success check №10). Класс .cs-dchk навешивается только при done — иначе
-            его forwards-анимация opacity перекрыла бы скрытие :last-child в покое. */}
-        <span className={done ? "cs-swap done" : "cs-swap"} style={{ width: 18, height: 18 }}>
-          <Clogo size={18} busy={busy} spin={busy} />
-          <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className={done ? "cs-dchk" : undefined} style={{ color: "#0d2418" }} aria-hidden="true">
-            <path d="M4 8.6l2.7 2.7 5.3-5.6" pathLength="100" />
-          </svg>
-        </span>
+        <Clogo size={18} busy={busy} spin={busy} />
       </button>
     </>
   );

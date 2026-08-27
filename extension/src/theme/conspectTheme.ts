@@ -1,7 +1,7 @@
-// Skeuomorphism дизайн-система «Конспект», материал Карбон:
-// углеродное плетение, холодное серебро объёмов, изумрудный CTA. Акценты разнесены:
-// primary CTA-кнопки зелёные, таймкоды/фокус/stage — янтарные (brand conspect),
-// металл (Clogo/круг-триггер/точки секций) — холодное серебро. Три природы, не одна.
+// Skeuomorphism дизайн-система «Конспект» (материал Карбон): углеродное плетение,
+// холодное серебро объёмов, изумрудный CTA. Акценты разнесены: primary CTA-кнопки
+// зелёные, таймкоды/фокус/stage — янтарные (brand conspect), металл (Clogo/круг-триггер/
+// точки секций) — холодное серебро. Три природы, не одна.
 //
 // Почему inline + cs-* классы, а не antd-style createStyles: createStyles гонит стили
 // через emotion в document.head, а контент-панель живёт в Shadow DOM — туда не попадёт.
@@ -9,8 +9,8 @@
 // каждый shadow-компонент вставляет своим <style>. antd-токены уходят в shadow через
 // StyleProvider({ container }).
 //
-// Шрифты с Google Fonts (content.tsx / options.html инжектят <link>). TODO перед CWS:
-// self-host woff2 (privacy + стойкость к style-src CSP YouTube).
+// Шрифты с Google Fonts (content.tsx / options.html инжектят <link>). TODO перед публикацией
+// в Chrome Web Store: self-host woff2 (privacy + стойкость к style-src CSP YouTube).
 import type { CSSProperties } from "react";
 import { theme as antdTheme } from "antd";
 import type { ThemeConfig } from "antd";
@@ -36,7 +36,7 @@ export const ERR = "#e25c5c";
 export const AMBER = "#f5a623";
 
 // ---------- серебряный radial-металл (Clogo, круг-триггер, точки секций) ----------
-// Холодное серебро, высокий блик сверху-слева → тёмный край.
+// Холодное серебро, высокий блик сверху-слева к тёмному краю.
 export const METAL_RADIAL = "radial-gradient(circle at 32% 26%, #ffffff 0%, #f0f0f2 10%, #c0c0c4 22%, #9a9a9f 42%, #6a6a72 62%, #4a4a4f 80%, #2a2a2e 94%, #08080a 100%)";
 // Точка секции в панели (adot) — компактнее, без тёмного края.
 export const METAL_DOT = "radial-gradient(circle at 35% 30%, #ffffff, #f0f0f2 30%, #9a9a9f 62%, #4a4a4f 92%, #1f1f22)";
@@ -58,7 +58,7 @@ export const CTA_BORDER = "#1f5c40";
 export const INPUT_BG = "#0a0a0c";
 
 // ---------- skeuo-тени (суть стиля: bevel + drop) ----------
-// Тени: карбон матовый, фаска приглушена, drop глубже.
+// Мягче и темнее бронзы: карбон матовый, фаска приглушена, drop глубже.
 export const SHADOW_BTN = "inset 0 1px 0 rgba(255,255,255,.18), inset 0 -2px rgba(0,0,0,.55), 0 4px 7px rgba(0,0,0,.65)";
 export const SHADOW_BTN_PRESS = "inset 0 2px 4px rgba(0,0,0,.7), inset 0 -1px rgba(255,255,255,.03)";
 export const SHADOW_CARD = "inset 0 1px 0 rgba(255,255,255,.05), 0 8px 16px rgba(0,0,0,.7)";
@@ -126,44 +126,6 @@ export const spinKeyframes = `@keyframes clogo-spin{to{transform:rotate(360deg)}
 // Сканлайн на фоне экрана загрузки: тонкие TV-линии, сверху вниз проходит янтарная полоса.
 export const scanKeyframes = `@keyframes cs-scan{from{top:-60px}to{top:100%}}`;
 
-// Icon swap (transitions.dev №09): кросс-фейд двух иконок в одной grid-ячейке — уходящий
-// слой в blur(2px)+scale(.25), входящий из него. Оба ребёнка всегда в DOM: :first-child —
-// состояние «работы» (спиннер/иконка действия), :last-child — «готово». Класс .done на
-// контейнере переключает. Переиспользуется попапом, панелью, читалкой, кабинетом, FeedButton.
-export const swapCss = `
-.cs-swap{display:inline-grid;place-items:center}
-.cs-swap>*{grid-area:1/1;transition:opacity .25s ease-in-out,filter .25s ease-in-out,transform .25s ease-in-out}
-.cs-swap>:last-child{opacity:0;filter:blur(2px);transform:scale(.25)}
-.cs-swap.done>:first-child{opacity:0;filter:blur(2px);transform:scale(.25)}
-.cs-swap.done>:last-child{opacity:1;filter:blur(0);transform:scale(1)}
-`;
-
-// Success check (transitions.dev №10, мини-вариант под 10-12px иконки): fade из blur +
-// доворот от 30deg + Y-bob + прорисовка stroke (pathLength=100 нормализует dasharray
-// без getTotalLength). Длительности ужаты с 500ms эталона до 220-300ms — на маленькой
-// иконке полный темп читается как задержка. Нужен className="cs-dchk" на <svg> и
-// pathLength="100" на <path>.
-export const dchkCss = `
-.cs-dchk{display:block;transform-origin:center;opacity:0;animation:cs-dchk-in .22s ${EASE} .05s forwards,cs-dchk-rot .3s ${EASE} forwards,cs-dchk-bob .3s cubic-bezier(.34,1.35,.64,1) forwards}
-.cs-dchk path{stroke-dasharray:100;stroke-dashoffset:100;animation:cs-dchk-draw .3s ${EASE} 80ms forwards}
-@keyframes cs-dchk-in{from{opacity:0;filter:blur(4px)}to{opacity:1;filter:blur(0)}}
-@keyframes cs-dchk-rot{from{transform:rotate(30deg)}to{transform:rotate(0)}}
-@keyframes cs-dchk-bob{from{translate:0 4px}to{translate:0 0}}
-@keyframes cs-dchk-draw{to{stroke-dashoffset:0}}
-`;
-
-// Skeleton reveal (transitions.dev №14, адаптация под слои разной высоты): контент
-// входит из blur(2px) со сдвигом 6px вверх (.cs-skel-in), скелет доигрывает уход
-// в blur поверх начала контента (.cs-skel-out, absolute) и размонтируется хуком
-// SkelSwap. Оркестрацию (задержку размонтирования и мгновенный reset при повторной
-// загрузке — is-resetting механика рецепта) делает компонент SkelSwap в screens/cards.
-export const revealCss = `
-.cs-skel-in{animation:cs-skelin .34s ease-in-out}
-@keyframes cskelin{from{opacity:0;filter:blur(2px);translate:0 6px}to{opacity:1;filter:blur(0);translate:0 0}}
-.cs-skel-out{animation:cs-skelout .32s ease-in-out forwards}
-@keyframes cskelout{from{opacity:1}to{opacity:0;filter:blur(2px)}}
-`;
-
 // Фон top-level страниц (read/options/popup body): глубокий карбон + холодный серебристый
 // radial-glow по углам + плотная плетёная текстура под 45° (углеродное волокно). Зелёный
 // здесь не живёт — он только на CTA-кнопках и done-семантике. В Shadow DOM панели не применяется.
@@ -171,7 +133,7 @@ export const pageTexCss = `background-color:${BG};background-image:radial-gradie
 
 // Skeuo CSS-примитивы — единый источник объёмных элементов (кнопки/карточки/inset-поля/
 // badges/stages/металл). Вставляются <style> в каждый shadow-компонент и в top-level
-// страницы. Классы: .btn/.panel/.input/.tc/.mini/.stage/.metal.
+// страницы. Классы объёмов: .btn/.panel/.input/.tc/.mini/.stage/.metal.
 export const skeuoCss = `
 .cs-btn{font:600 14px ${FONT_SANS};padding:11px 20px;border-radius:9px;border:1px solid ${BTN_BORDER};background:${BTN};color:${TEXT};cursor:pointer;text-shadow:${TXT_SHADOW};box-shadow:${SHADOW_BTN};transition:filter .12s ${EASE}, transform .06s ${EASE}, box-shadow .12s ${EASE};user-select:none;display:inline-flex;align-items:center;justify-content:center;gap:8px;line-height:1;}
 .cs-btn:hover{filter:brightness(1.12)}
@@ -226,7 +188,7 @@ export const autofillFixCss = `input:-webkit-autofill,input:-webkit-autofill:hov
 // панель — таймкод срезается (остаётся серебряная точка), reader — уходит в бейдж .tc.
 export const mdBodyCss = `
 .md-body p{margin:0;}
-.md-body blockquote{margin:18px 0 0;padding:13px 15px;background:${INPUT_BG};border:1px solid ${LINE};border-radius:9px;box-shadow:inset 0 1px 3px rgba(0,0,0,.4);font:400 11.5px/1.55 ${FONT_SANS};color:${MUT};}
+.md-body blockquote{margin:18px 0 0;padding:13px 15px;background:${INPUT_BG};border:1px solid ${LINE};border-radius:9px;box-shadow:inset 0 1px 3px rgba(0,0,0,.4);font:400 11.5px/1.55 ${FONT_SANS};color:${TEXT};}
 .md-body code{background:${INPUT_BG};border:1px solid ${LINE};border-radius:5px;padding:1px 5px;font:13px ${FONT_MONO};color:${SEC};}
 .md-body a{color:${YT_BLUE};text-decoration:none;border-bottom:1px solid rgba(62,166,255,.3);transition:.15s ${EASE};}
 .md-body a:hover{border-bottom-color:${YT_BLUE};}
@@ -238,7 +200,7 @@ export const mdBodyCss = `
 @keyframes clogo-blink{0%,50%{opacity:1}51%,100%{opacity:0}}
 `;
 
-// §07 read-panel (.rp-body).
+// §07 read-panel (.rp-body): .panel-body/.psec-h/.thesis.
 export const panelBodyCss = `
 .rp-body{font:500 12px/1.6 ${FONT_SANS};color:${TEXT};}
 .rp-body>:first-child{margin-top:0;}
@@ -278,7 +240,7 @@ export const readerBodyCss = `
 .rd-body ol{counter-reset:rdli;}
 .rd-body ol li{counter-increment:rdli;}
 .rd-body ol li::before{content:counter(rdli);position:absolute;left:0;top:10px;width:auto;height:auto;background:${INPUT_BG};color:${MUT};font:500 10px ${FONT_MONO};padding:0 4px;border-radius:3px;}
-.rd-body blockquote{margin:26px 0 0;padding:13px 15px;background:${INPUT_BG};border:1px solid ${LINE};border-radius:9px;box-shadow:inset 0 1px 3px rgba(0,0,0,.4);font:400 11.5px/1.55 ${FONT_SANS};color:${MUT};font-style:normal;}
+.rd-body blockquote{margin:26px 0 0;padding:13px 15px;background:${INPUT_BG};border:1px solid ${LINE};border-radius:9px;box-shadow:inset 0 1px 3px rgba(0,0,0,.4);font:400 11.5px/1.55 ${FONT_SANS};color:${TEXT};font-style:normal;}
 /* та же причина, что у .rp-body: .rd-body p (14px/SEC) иначе перебивает приглушённый
    11.5px/MUT оговорки её же собственным <p>-текстом внутри <blockquote>. */
 .rd-body blockquote p{margin:0;color:inherit;font-size:inherit;line-height:inherit;}

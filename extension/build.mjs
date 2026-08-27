@@ -2,7 +2,7 @@
 // esbuild собирает каждый entry отдельно. Статику (manifest, html) копируем в dist/.
 // CWD-agnostic: все пути относительно этого файла.
 import { build, context } from "esbuild";
-import { cpSync, mkdirSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
@@ -16,6 +16,7 @@ const entries = [
   { entry: "src/options.tsx", outfile: "dist/options.js", format: "iife" },
   { entry: "src/popup.tsx", outfile: "dist/popup.js", format: "iife" },
   { entry: "src/read.tsx", outfile: "dist/read.js", format: "iife" },
+  { entry: "src/offscreen.ts", outfile: "dist/offscreen.js", format: "iife" },
 ];
 
 const base = (e) => ({
@@ -38,7 +39,7 @@ const base = (e) => ({
 });
 
 // Кнопка и панель живут в Shadow DOM, стили — через antd cssinjs. content.css не нужен.
-const STATIC = ["manifest.json", "src/options.html", "src/popup.html", "src/read.html"];
+const STATIC = ["manifest.json", "src/options.html", "src/popup.html", "src/read.html", "src/offscreen.html"];
 const copyStatic = () => {
   mkdirSync(resolve(HERE, "dist"), { recursive: true });
   for (const f of STATIC) {
@@ -48,6 +49,10 @@ const copyStatic = () => {
   }
   // icons/ (PNG action/store-иконки) — целиком в dist/icons/.
   cpSync(resolve(HERE, "icons"), resolve(HERE, "dist/icons"), { recursive: true });
+  // config.json (опционально): адрес сервера + общий токен. Его кладёт агент при установке
+  // (или install-скрипт). Файл в .gitignore — токен не должен попасть в репозиторий.
+  const cfgJson = resolve(HERE, "config.json");
+  if (existsSync(cfgJson)) cpSync(cfgJson, resolve(HERE, "dist", "config.json"));
 };
 
 if (watch) {
