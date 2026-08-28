@@ -1,0 +1,6 @@
+# Скрипты автозапуска должны попадать на диск с переводами строк своей платформы:
+# cmd/vbs под Windows, systemd-юниты и sh под Linux/macOS.
+*.cmd text eol=crlf
+*.vbs text eol=crlf
+*.service text eol=lf
+*.sh text eol=lf

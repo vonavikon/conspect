@@ -1,0 +1,15 @@
+[Unit]
+Description=SSH-туннель к серверу Conspect
+# Ждём сеть, иначе первый запуск после загрузки упадёт и уйдёт в рестарт.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Впишите свой адрес сервера и порт. Вход по ключу должен работать без пароля:
+#   ssh-keygen -t ed25519 && ssh-copy-id user@your-server
+ExecStart=/usr/bin/ssh -N -T -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -L 3000:localhost:3000 user@your-server
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
