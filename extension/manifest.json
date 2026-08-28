@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Conspect",
   "version": "0.1.2",
-  "description": "Структурированный конспект YouTube по клику.",
+  "description": "Сохраняй структурированную информацию о лекциях, подкастах, любимых видео эссе.",
   "icons": {
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",
