@@ -1,4 +1,4 @@
-# Conspect (self-host)
+# Conspect
 
 ![Конспект собирается потоком: субтитры, анализ, структурированный конспект](docs/conspect-demo.gif)
 
