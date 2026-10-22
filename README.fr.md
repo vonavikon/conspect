@@ -87,7 +87,7 @@ Si le port 3000 du serveur est déjà pris, changez le mappage dans `docker-comp
 
 ### Adresse publique
 
-Ce cas sert si vous utilisez plusieurs appareils sans vouloir monter un tunnel sur chacun. Attendez-vous à ce que des scanners trouvent le service : l'adresse devient publique et la protection tient dans un seul token.
+Ce cas sert si vous utilisez plusieurs appareils sans vouloir monter un tunnel sur chacun. Attendez-vous à ce que des scanners trouvent le service : l'adresse devient publique et la protection repose sur un seul token.
 
 1. Dans `docker-compose.yml`, remplacez `127.0.0.1:3000:3000` par `3000:3000`.
 2. Installez un reverse-proxy avec HTTPS (Caddy, nginx) sur votre domaine et proxifiez vers `127.0.0.1:3000`. Sans HTTPS, le token et les transcriptions circulent en clair : n'importe qui sur la route peut les lire, du Wi-Fi du café au fournisseur d'accès.
@@ -173,7 +173,7 @@ Prenez une clé LLM dédiée pour le serveur et fixez-lui un plafond de dépense
 
 ## Limitations connues
 
-- **Le rate limit est commun, pas par adresse.** Les compteurs sont globaux, mais ne comptent que les requêtes avec un token valide : sans lui, la requête est rejetée en 401 avant le contrôle de limite et ne consomme pas de quota, et la connexion SSE ne s'ouvre pas non plus. Tant que le token n'est connu que de vous, la limite est invisible. S'il fuit, les lancements d'autrui mangent le quota commun et votre budget LLM — le remède est de changer le token, pas de régler les limites.
+- **Le rate limit est commun, pas par adresse.** Les compteurs sont globaux, mais ne comptent que les requêtes avec un token valide : sans lui, la requête est rejetée en 401 avant le contrôle de limite et ne consomme pas de quota, et la connexion SSE ne s'ouvre pas non plus. Tant que le token n'est connu que de vous, la limite est invisible. S'il fuit, les lancements des tiers mangent le quota commun et votre budget LLM — le remède est de changer le token, pas de régler les limites.
 - **Le serveur ne termine pas le TLS.** Le HTTPS est l'affaire du reverse-proxy devant lui.
 - **Le token ne se révoque pas partiellement.** Il n'y en a qu'un. Après changement, mettez à jour `config.json` sur chaque appareil (remplacer le fichier dans `dist` et recharger l'extension suffit).
 - **yt-dlp réclame un runtime JS.** Les logs montrent `No supported JavaScript runtime could be found ... has been deprecated`. Les sous-titres se téléchargent quand même, c'est vérifié. Si YouTube se met à servir moins de données, posez `deno` à côté de yt-dlp (sur le système ou dans l'image).

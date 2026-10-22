@@ -90,7 +90,7 @@ Si el puerto 3000 del servidor está ocupado por otra cosa, cambia el mapeo en `
 Hace falta si usas varios dispositivos y no quieres montar un túnel en cada uno. Prepárate para que los escáneres vean el servicio: la dirección pasa a ser pública y la protección es un solo token.
 
 1. En `docker-compose.yml` sustituye `127.0.0.1:3000:3000` por `3000:3000`.
-2. Monta un reverse-proxy con HTTPS (Caddy, nginx) en tu dominio y proxya hacia `127.0.0.1:3000`. Sin HTTPS, el token y las transcripciones viajan en texto plano: cualquiera en la ruta puede leerlos, desde el Wi-Fi de la cafetería hasta tu proveedor.
+2. Monta un reverse-proxy con HTTPS (Caddy, nginx) en tu dominio que apunte a `127.0.0.1:3000`. Sin HTTPS, el token y las transcripciones viajan en texto plano: cualquiera en la ruta puede leerlos, desde el Wi-Fi de la cafetería hasta tu proveedor.
 3. Añade el dominio a `host_permissions` en `manifest.json` y recompila la extensión. Como alternativa, indica en `CORS_ORIGIN` el origin de la extensión `chrome-extension://<id>` (el id se ve en `chrome://extensions`).
 4. Abre en el firewall solo el puerto del reverse-proxy (443), no el del backend.
 
