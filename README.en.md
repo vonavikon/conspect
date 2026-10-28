@@ -1,6 +1,8 @@
 # Conspect
 
 [RU](README.md) · **EN** · [中文](README.zh.md) · [Español](README.es.md) · [Français](README.fr.md)
+[![VirusTotal](https://img.shields.io/badge/VirusTotal-0%2F75_clean-brightgreen)](https://www.virustotal.com/gui/file/bf7375629b18482551076aa4c73510bc0fee02988c34ff916eff5c90fe2f2623)
+
 
 ![Конспект собирается потоком: субтитры, анализ, структурированный конспект](docs/conspect-demo.gif)
 
