@@ -1,13 +1,13 @@
-// Плавающая панель конспекта (§07 read-panel). Живёт в shadow-host (fixed-оверлей,
-// pointer-events:none), сама карточка — absolute и включает клики у себя.
+// Floating digest panel (§07 read-panel). Lives in a shadow-host (fixed overlay,
+// pointer-events:none); the card itself is absolute and re-enables clicks.
 //
-// Состояния: loading (стадии+таймер+факт), streaming/done (TL;DR «Главная мысль» +
-// тело-маркдаун), error (блок без тех-деталей).
-// Markdown — marked+DOMPurify в Shadow DOM, таймкоды кликабельны (seek видео).
+// States: loading (stages + timer + fact), streaming/done (the "Main idea" TL;DR +
+// a markdown body), error (a block without tech details).
+// Markdown — marked+DOMPurify in Shadow DOM; timecodes are clickable (video seek).
 //
-// Шапка: Clogo + title + Stop (при стриме) + скопировать/скачать (после готовности) +
-// свернуть + закрыть. Действия в шапке, отдельного футера нет.
-// Свернуть/развернуть — плавный морфинг контейнера (framer-motion) + crossfade круг↔панель.
+// Header: Clogo + title + Stop (while streaming) + copy/download (once done) +
+// collapse + close. Actions live in the header; there is no separate footer.
+// Collapse/expand — smooth container morphing (framer-motion) + circle↔panel crossfade.
 import { useEffect, useRef, useState } from "react";
 import { useSyncExternalStore } from "react";
 import { motion } from "framer-motion";
@@ -48,20 +48,20 @@ const EASE_ARR: [number, number, number, number] = [0.22, 0.61, 0.36, 1];
 export function ConspectPanel() {
   const s = useSyncExternalStore(subscribePanel, getPanelState);
   const bodyRef = useRef<HTMLDivElement>(null);
-  // Пользователь прервал автоскролл — перестаём тащить вниз, иначе читать стримящийся
-  // конспект невозможно: текст убегает каждую итерацию. Сбрасывается на новом конспекте.
+  // The user interrupted autoscroll — stop dragging down, otherwise the streaming digest
+  // is impossible to read: the text runs away every tick. Reset on a new digest.
   const userInteracted = useRef(false);
   const [collapsed, setCollapsed] = useState(false);
   const [copied, setCopied] = useState(false);
   const url = s.url || location.href;
-  // Уважаем prefers-reduced-motion: морфинг/crossfade и CSS-анимации гасятся.
+  // Respect prefers-reduced-motion: morphing/crossfade and CSS animations are disabled.
   const reduceMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   useEffect(() => {
     if (s.status === "loading") userInteracted.current = false;
   }, [s.status, s.url]);
 
-  // Автоскролл вниз во время стрима, пока пользователь не вмешался.
+  // Autoscroll down during the stream until the user intervenes.
   useEffect(() => {
     if (userInteracted.current) return;
     if (s.status === "streaming" || s.status === "loading") {
@@ -70,7 +70,7 @@ export function ConspectPanel() {
     }
   }, [s.text, s.status]);
 
-  // Ушёл от низа — отключаем автоскролл; вернулся к низу — снова цепляем.
+  // Left the bottom — disable autoscroll; back at the bottom — re-engage.
   function onBodyUserScroll(el: HTMLDivElement): void {
     const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 24;
     userInteracted.current = !atBottom;
@@ -83,9 +83,9 @@ export function ConspectPanel() {
   const sv = savedMinutes(meta.durationSec);
   const done = s.status === "done";
   const busy = s.status === "streaming" || s.status === "loading";
-  // Фаза стрима — эвристика по событиям SSE: meta → «Анализирую», первый delta → «Собираю».
-  // meta.durationSec != null (а не truthiness): само событие meta — сигнал фазы 1,
-  // даже если duration ещё 0/неизвестен; иначе falsy-ноль оставил бы стадию на «Скачиваю субтитры».
+  // Stream phase — a heuristic over SSE events: meta → "Analyzing", first delta → "Assembling".
+  // meta.durationSec != null (not truthiness): the meta event itself is the phase-1 signal,
+  // even if duration is still 0/unknown; otherwise a falsy zero would keep the stage at "Downloading subtitles".
   const phase: 0 | 1 | 2 = s.text.trim() ? 2 : meta.title || meta.durationSec != null ? 1 : 0;
   const { tldr, body } = splitTldr(s.text);
   const showBody = s.status === "streaming" || s.status === "done";
@@ -93,15 +93,15 @@ export function ConspectPanel() {
 
   async function copy(): Promise<boolean> {
     const text = wrapFrontmatter({ meta: s.meta, conspectus: s.text }, url);
-    // Возвращаем промис, чтобы кнопка копирования в шапке показывала «✓ Скопировано» только после
-    // реальной записи, а не синхронно до settle (иначе при реджекте буфера
-    // пользователь видел бы успех при провале).
+    // Return a promise so the header copy button shows "✓ Copied" only after the actual
+    // write, not synchronously before settle (otherwise, if the clipboard rejects,
+    // the user would see success on failure).
     try {
       await navigator.clipboard.writeText(text);
       return true;
     } catch {
-      // HTTP-контекст / нет фокуса — clipboard API может быть недоступен.
-      // Фолбэк на устаревший, но рабочий execCommand поверх основного документа.
+      // HTTP context / no focus — the clipboard API may be unavailable.
+      // Fall back to the deprecated but working execCommand over the main document.
       try {
         const ta = document.createElement("textarea");
         ta.value = text;
@@ -116,15 +116,15 @@ export function ConspectPanel() {
     }
   }
 
-  // Открыть полную читалку (read.html) для готового конспекта. Полный markdown уже в
-  // кэше под hashUrl(url), read.html подтянет его из chrome.storage без сети.
-  // Контент-скрипт не имеет chrome.tabs — открытие вкладки идёт через SW (sendMessage).
+  // Open the full reader (read.html) for the finished digest. The full markdown is already
+  // in the cache under hashUrl(url); read.html will pull it from chrome.storage without the network.
+  // The content script has no chrome.tabs — opening a tab goes through the SW (sendMessage).
   function openRead(): void {
     if (!s.url) return;
     void chrome.runtime.sendMessage({ type: "openRead", urlHash: hashUrl(s.url), url: s.url });
   }
 
-  // C2: клик по таймкоду в теле → seek YouTube-плеера (document общий, видео — на странице).
+  // C2: a timecode click in the body → seek the YouTube player (shared document; the video is on the page).
   function onBodyClick(e: React.MouseEvent<HTMLDivElement>): void {
     const el = (e.target as HTMLElement).closest?.(".md-ts") as HTMLElement | null;
     if (!el) return;
@@ -136,9 +136,9 @@ export function ConspectPanel() {
     e.stopPropagation();
   }
 
-  // Морфинг контейнер: collapse → круг 48px, expand → панель 380. Анимируем width,
-  // borderRadius, фон/рамку/тень. height НЕ анимируем — иначе при стриме (тело растёт
-  // каждый тик) панель дрожала бы; смену высоты маскирует crossfade содержимого.
+  // Morphing container: collapse → 48px circle, expand → 380 panel. We animate width,
+  // borderRadius, background/border/shadow. height is NOT animated — otherwise during streaming (the body
+  // grows every tick) the panel would jitter; the content crossfade masks the height change.
   const boxAnim = collapsed
     ? { width: 48, borderRadius: 24, backgroundColor: "rgba(26,26,26,0)", borderColor: "rgba(58,58,58,0)", boxShadow: "0 0 0 0 rgba(0,0,0,0)" }
     : { width: 380, borderRadius: 14, backgroundColor: CARD, borderColor: BORDER, boxShadow: `inset 0 1px 0 rgba(255,255,255,.06), 0 24px 60px rgba(0,0,0,.55)` };
@@ -192,10 +192,10 @@ export function ConspectPanel() {
           ...(collapsed ? { width: 48, height: 48 } : {}),
         }}
       >
-        {/* развёрнутое содержимое — всегда в потоке (даёт высоту); при сворачивании fade-out.
-            pointerEvents off, чтобы клики шли в круг-C, пока панель невидима. */}
+        {/* expanded content — always in flow (gives height); on collapse, fade-out.
+            pointerEvents off, so clicks reach the C circle while the panel is invisible. */}
         <div className="rp-tex" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, opacity: collapsed ? 0 : 1, transition: `opacity ${reduceMotion ? "0s" : ".2s"} ${EASE}`, pointerEvents: collapsed ? "none" : undefined }}>
-          {/* шапка: Clogo · title видео · свернуть · закрыть */}
+          {/* header: Clogo · video title · collapse · close */}
           <div className="rp-head">
             <span style={{ display: "inline-flex", alignItems: "center" }}><Clogo size={16} /></span>
             <span className="rp-title">{s.status === "queued" ? "В очереди" : meta.title || "Конспект"}</span>
@@ -237,7 +237,7 @@ export function ConspectPanel() {
             </button>
           </div>
 
-          {/* мета: видео MM:SS · сохранено N мин */}
+          {/* meta: video MM:SS · saved N min */}
           {!card && (meta.durationSec || sv > 0) && (
             <div className="rp-meta">
               {meta.durationSec ? <>видео {dur}</> : null}
@@ -245,7 +245,7 @@ export function ConspectPanel() {
             </div>
           )}
 
-          {/* тело. card-состояния (loading/connect/paywall) — отцентрированы в панели. */}
+          {/* body. card states (loading/connect/paywall) — centered in the panel. */}
           <div
             ref={bodyRef}
             className="rp-scroll"
@@ -253,8 +253,8 @@ export function ConspectPanel() {
             onScroll={(e) => onBodyUserScroll(e.currentTarget)}
             style={
               s.status === "loading"
-                // загрузка §06 встроена в панеру (embedded): встык, без отступов и
-                // центрирования — рамку/скругление даёт панель, сканлайн идёт край-в-край.
+                // the §06 loader is embedded in the panel: flush, no padding or
+                // centering — the panel provides the frame/rounding, the scanline runs edge to edge.
                 ? { position: "relative", padding: 0, overflow: "hidden", overflowWrap: "anywhere", flex: 1, display: "block", minHeight: 340 }
                 : card
                 ? { position: "relative", padding: "14px 16px", overflowY: "auto", overflowWrap: "anywhere", flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }
@@ -312,8 +312,8 @@ export function ConspectPanel() {
             )}
           </div>
 
-          {/* После готовности — «Читать полностью» открывает полную читалку read.html
-              (оглавление + прогресс чтения). Полный конспект уже в кэше. */}
+          {/* Once done — "Read in full" opens the full reader read.html
+              (outline + reading progress). The full digest is already in the cache. */}
           {done && (
             <div style={{ padding: "10px 13px 12px", borderTop: `1px solid ${LINE}` }}>
               <button onClick={openRead} className="cs-btn filled block"><IconRead size={13} /> Читать полностью</button>
@@ -321,7 +321,7 @@ export function ConspectPanel() {
           )}
         </div>
 
-        {/* круг-C: свёрнутая панель (§05). Overlay по центру; fade-in при сворачивании. */}
+        {/* the C circle: the collapsed panel (§05). Overlay centered; fade-in on collapse. */}
         <div
           style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", opacity: collapsed ? 1 : 0, transition: `opacity ${reduceMotion ? "0s" : ".2s"} ${EASE}`, pointerEvents: collapsed ? "auto" : "none" }}
         >
@@ -338,10 +338,10 @@ export function ConspectPanel() {
             <span style={{ display: "inline-flex", transform: "translateX(3.8%)" }}>
               <Clogo size={26} busy={busy} />
             </span>
-            {/* Скрыть свёрнутую панель: раньше круг умел только разворачивать —
-                закрыть его с экрана без разворота было нельзя. stopPropagation,
-                иначе клик всплывёт к onClick круга и сначала развернёт панель.
-                Стрим не останавливаем: по дизайну SW доиграет его в фон и закэширует. */}
+            {/* Hide the collapsed panel: before, the circle could only expand —
+                there was no way to remove it from the screen without expanding. stopPropagation,
+                otherwise the click bubbles to the circle's onClick and first expands the panel.
+                The stream is not stopped: by design the SW plays it out in the background and caches it. */}
             <button
               className="cp-x"
               title="Скрыть"

@@ -1,17 +1,17 @@
-// Настройки подключения + локальный кэш конспектов в chrome.storage.local.
-// Self-host: сервер не хранит ничего, поэтому готовые конспекты кэшируются в браузере.
-// Кэш даёт «Недавние» в попапе и чтение во вкладке без повторного запроса; основной
-// путь сохранения — экспорт .md (downloadBlob в format.ts).
+// Connection settings + the local digest cache in chrome.storage.local.
+// Self-host: the server stores nothing, so finished digests are cached in the browser.
+// The cache feeds the popup's "Recent" and in-tab reading without a repeat request; the main
+// saving path is the .md export (downloadBlob in format.ts).
 
 export type Settings = {
-  baseUrl?: string; // без хвостового слэша, напр. https://conspect.example.com
+  baseUrl?: string; // without a trailing slash, e.g. https://conspect.example.com
   sharedToken?: string;
 };
 
 export type Digest = {
   urlHash: string;
   url: string;
-  ts: number; // unix-секунды
+  ts: number; // unix seconds
   title: string | null;
   channel: string | null;
   durationSec: number | null;
@@ -20,8 +20,8 @@ export type Digest = {
 };
 
 const SETTINGS_KEY = "conspect_settings_v1";
-// Ключ кэша конспектов экспортируем: кабинет (options.tsx) слушает chrome.storage.onChanged
-// по нему, чтобы архив обновлялся live, когда SW дописывает готовый конспект в кэш.
+// The digest cache key is exported: the dashboard (options.tsx) listens to chrome.storage.onChanged
+// on it so the archive updates live when the SW appends a finished digest to the cache.
 export const DIGESTS_KEY = "conspect_digests_v1";
 const MAX_DIGESTS = 50;
 
@@ -39,7 +39,7 @@ async function readDigests(): Promise<Digest[]> {
   return (v[DIGESTS_KEY] as Digest[] | undefined) ?? [];
 }
 
-// Свежие сверху. Возвращаем копию — вызывающие сортируют/режут, не трогая хранилище.
+// Freshest first. We return a copy — callers sort/slice without touching the storage.
 export async function listDigests(): Promise<Digest[]> {
   const d = await readDigests();
   return d.slice().sort((a, b) => b.ts - a.ts);

@@ -1,14 +1,14 @@
-// Mock SSE-сервер для отладки экранов расширения. Dev-only, в прод не идёт.
-// Эмулирует контракт backend/src/api.ts: POST /digest/stream → SSE meta/delta/done/error/ping
-// и GET /health. Без yt-dlp и LLM — отдаёт заготовленный markdown с задержками, чтобы
-// увидеть все состояния панели/попапа: loading (стадии+таймер), streaming, done.
+// A mock SSE server for debugging the extension's screens. Dev-only; not shipped.
+// Emulates the backend/src/api.ts contract: POST /digest/stream → SSE meta/delta/done/error/ping
+// and GET /health. No yt-dlp, no LLM — serves a prepared markdown with delays, so you can
+// see all panel/popup states: loading (stages + timer), streaming, done.
 //
-// Триггеры через url в теле запроса:
-//   *url* содержит "nocaptions" → error no_captions
-//   *url* содержит "toolong"    → error too_long
-//   иначе                      → happy-path (meta → delta… → done)
+// Triggers via the url in the request body:
+//   *url* contains "nocaptions" → error no_captions
+//   *url* contains "toolong"    → error too_long
+//   otherwise                   → happy-path (meta → delta… → done)
 //
-// Запуск: node mock-server.mjs   (порт из PORT, по умолчанию 3000)
+// Run: node mock-server.mjs   (port from PORT, default 3000)
 
 import http from "node:http";
 
@@ -53,7 +53,7 @@ DNS — это распределённая телефонная книга ин
 
 DNS — пример удачной распределённой системы: иерархия плюс кэширование дают масштаб, а TTL управляет компромиссом между свежестью и нагрузкой.`;
 
-// happy-path: meta, затем delta-чанки, затем done. Задержки, чтобы состояния были видны.
+// happy-path: meta, then delta chunks, then done. Delays so the states are visible.
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -83,7 +83,7 @@ const server = http.createServer(async (req, res) => {
     try {
       url = JSON.parse(body || "{}").url ?? "";
     } catch {
-      /* не JSON — url пустой */
+      /* not JSON — url stays empty */
     }
 
     res.writeHead(200, {
@@ -98,7 +98,7 @@ const server = http.createServer(async (req, res) => {
       closed = true;
     });
 
-    // error-ветки по маркеру в url
+    // error branches by the marker in the url
     if (url.includes("nocaptions")) {
       await sleep(1200);
       if (!closed) sse(res, "error", { reason: "no_captions" });

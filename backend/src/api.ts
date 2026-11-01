@@ -53,8 +53,8 @@ export function createApp(deps: AppDeps) {
     return c.json({ error: "internal" }, 500);
   });
 
-  // Общий секрет между расширением и сервером. Без него любой, кто узнал адрес
-  // публичного сервера, жжёт LLM-ключ владельца. Сравнение константное по времени.
+  // Shared secret between the extension and the server. Without it, anyone who learns
+  // the public server's address burns the owner's LLM key. Constant-time comparison.
   const requireToken = async (c: Context, next: () => Promise<void>) => {
     const h = c.req.header("authorization") ?? "";
     const m = h.match(/^Bearer\s+(.+)$/i);
@@ -66,24 +66,24 @@ export function createApp(deps: AppDeps) {
     await next();
   };
 
-  // Rate limit: глобальная защита от сжигания LLM-ключа. Сервер знает один токен, а не
-  // пользователей, поэтому лимиты общие. inFlight — одновременные генерации, stamps —
-  // запуски за последнюю минуту (скользящее окно). Это defense-in-depth: утечка токена
-  // ограничивает ущерб, но не отменяет его.
+  // Rate limit: global protection against burning the LLM key. The server knows one token, not
+  // users, so the limits are shared. inFlight — concurrent generations; stamps —
+  // starts over the last minute (sliding window). Defense-in-depth: a leaked token
+  // limits the damage but does not cancel it.
   let inFlight = 0;
   const stamps: number[] = [];
 
   app.get("/health", (c) => c.json({ ok: true, version: "1" }));
 
-  // Keepalive: расширение держит соединение живым короткими GET /ping. По прерыванию
-  // этих строк в логе видно, что service worker расширения уснул или закрылся.
+  // Keepalive: the extension keeps the connection alive with short GET /ping requests. Breaks
+  // in these log lines show that the extension's service worker fell asleep or closed.
   app.get("/ping", (c) => c.json({ ok: true }));
 
-  // Стриминг конспекта (SSE): meta → delta… → done. live-reveal в расширении +
-  // длинные видео не падают по таймауту гейтвея (чанки летят непрерывно).
+  // Digest streaming (SSE): meta → delta… → done. Live reveal in the extension +
+  // long videos do not die on a gateway timeout (chunks keep flying).
   app.post("/digest/stream", requireToken, bodyLimit({
-    // Тело запроса — только {"url":"..."}, пара сотен байт. Без лимита утёкший токен +
-    // мегабайтный JSON-боди дают memory-DoS: c.req.json() парсится ДО rate-limit.
+    // The request body is just {"url":"..."}, a couple hundred bytes. Without a limit, a leaked token +
+    // a megabyte JSON body gives a memory DoS: c.req.json() is parsed BEFORE the rate limit.
     maxSize: 64 * 1024,
     onError: (c) => c.json({ ok: false, reason: "http_error" }, 413),
   }), async (c) => {
@@ -93,8 +93,8 @@ export function createApp(deps: AppDeps) {
     const url = normalizeYouTubeUrl(parsed.data.url);
     if (!url) return c.json({ ok: false, reason: "invalid_url" }, 400);
 
-    // Скользящее окно за минуту + cap на одновременные генерации. Проверяем ДО streamSSE:
-    // иначе клиент получил бы SSE-соединение, а не 429.
+    // Sliding window per minute + a cap on concurrent generations. Checked BEFORE streamSSE:
+    // otherwise the client would get an SSE connection instead of a 429.
     const now = Date.now();
     while (stamps.length && stamps[0] <= now - 60_000) stamps.shift();
     if (inFlight >= cfg.maxConcurrentDigests || stamps.length >= cfg.rateLimitPerMin) {
@@ -104,34 +104,34 @@ export function createApp(deps: AppDeps) {
     inFlight++;
     stamps.push(now);
 
-    // streamSSE возвращает Response сразу; колбэк держит inFlight и гасит его в finally.
-    // Если streamSSE бросит СИНХРОННО (до вызова колбэка), finally не выполнится — декремент
-    // здесь симметричен инкременту, иначе счётчик утекает и сервер залипает в 429 до рестарта.
+    // streamSSE returns a Response immediately; the callback holds inFlight and clears it in finally.
+    // If streamSSE throws SYNCHRONOUSLY (before invoking the callback), finally never runs — the decrement
+    // here mirrors the increment, otherwise the counter leaks and the server sticks in 429 until restart.
     try {
       return streamSSE(c, async (stream) => {
-      // Heartbeat: SSE-событие ping каждые 10с держит соединение живым, пока backend
-      // выполняет probe+download captions+transcript (для 2ч видео — десятки секунд) и
-      // пока LLM «думает» над первым токеном большого транскрипта. Без этого Caddy/браузер
-      // рубят idle-соединение до meta/первого delta — клиент ловит обрыв, конспекта нет.
+      // Heartbeat: an SSE ping event every 10s keeps the connection alive while the backend
+      // probes+downloads captions+builds the transcript (tens of seconds for a 2h video) and
+      // while the LLM "thinks" over the first token of a large transcript. Without it, Caddy/the browser
+      // cut the idle connection before meta/first delta — the client gets a break, no digest.
       const hb = setInterval(() => {
         void stream.writeSSE({ event: "ping", data: "{}" }).catch(() => {});
       }, 10000);
-      // finalized — терминальный исход зафиксирован. Финальная запись done/error может
-      // бросить, если клиент закрыл вкладку в момент записи; без флага catch записал бы
-      // ошибку повторно. safeWrite гасит обрыв при записи терминала.
+      // finalized — the terminal outcome is recorded. The final done/error write may
+      // throw if the client closed the tab at the write moment; without the flag, catch would write
+      // the error again. safeWrite swallows the break when writing the terminal event.
       let finalized = false;
       const safeWrite = (evt: { event: string; data: string }): Promise<void> =>
         stream.writeSSE(evt).catch(() => {});
-      // Отмена клиента (Стоп/закрытие панели до done): обрываем LLM-стрим. Флаг finalized
-      // страхует от двойной обработки, если abort бросит AbortError из read-loop раньше,
-      // чем цикл дойдёт до проверки.
+      // Client cancellation (Stop/closing the panel before done): break the LLM stream. The finalized
+      // flag guards against double handling if abort throws an AbortError from the read loop before
+      // the loop reaches the check.
       const ac = new AbortController();
       let aborted = false;
-      stream.onAbort(() => { aborted = true; clearInterval(hb); try { ac.abort(); } catch { /* уже обрывали */ } });
+      stream.onAbort(() => { aborted = true; clearInterval(hb); try { ac.abort(); } catch { /* already aborted */ } });
 
       try {
-        // probe+download+transcript идут ЗДЕСЬ, после открытия ответа — иначе клиент
-        // ждал бы первого байта всё время подготовки, без единого keepalive.
+        // probe+download+transcript run HERE, after the response opens — otherwise the client
+        // would wait for the first byte through the whole preparation, without a single keepalive.
         const started = await orchestrator.digestStream(url, ac.signal);
         if (!started.ok) {
           finalized = true;
@@ -143,14 +143,14 @@ export function createApp(deps: AppDeps) {
         let tokensIn = 0, tokensOut = 0;
         for await (const chunk of started.stream) {
           if (aborted) break;
-          // Прогресс чанкинга («часть i/N») — до первого delta merge, когда LLM ещё
-          // не стримит текст. Клиент показывает его в шапке загрузки.
+          // Chunking progress ("part i/N") — before the first merge delta, while the LLM is not
+          // yet streaming text. The client shows it in the loading header.
           if ("progress" in chunk) {
             await stream.writeSSE({ event: "progress", data: JSON.stringify(chunk.progress) });
             continue;
           }
-          // no_content приходит во время стрима: маркер ERROR: no-content от LLM.
-          // Это не конспект — клиенту SSE error.
+          // no_content arrives mid-stream: the ERROR: no-content marker from the LLM.
+          // It is not a digest — an SSE error to the client.
           if ("reason" in chunk) {
             finalized = true;
             await safeWrite({ event: "error", data: JSON.stringify({ reason: chunk.reason }) });
@@ -161,7 +161,7 @@ export function createApp(deps: AppDeps) {
             await stream.writeSSE({ event: "delta", data: JSON.stringify({ delta: chunk.delta }) });
           }
         }
-        // Отмена во время стрима: частичный конспект не отдаём — клиент ушёл.
+        // Canceled mid-stream: no partial digest — the client is gone.
         if (aborted) return;
         finalized = true;
         await safeWrite({ event: "done", data: JSON.stringify({ tokensIn, tokensOut }) });

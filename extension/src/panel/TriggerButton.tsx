@@ -1,16 +1,16 @@
-// Кнопка-запуск «Конспект»: круглый металлический рубильник (skeuo .cs-metal) с
-// серебряной монограммой-C. Крепится в строке действий под плеером (content.tsx),
-// рядом с «Сохранить»/«Поделиться». По клику открывает панель и (если нужно)
-// запускает стрим.
+// The "Conspect" launch button: a round metal switch (skeuo .cs-metal) with a
+// silver C monogram. Sits in the action row under the player (content.tsx),
+// next to "Save"/"Share". On click it opens the panel and (if needed)
+// starts the stream.
 //
-// Подписана и на panelStore (открытие/закрытие панели), и на глобальный стрим (useStream):
-// даже когда панель закрыта, кнопка крутится, пока генерация этого ролика идёт в фоне, и
-// снова даёт открыть окно по клику (#16 — «вижу, что генерация пошла, и могу открыть»).
+// Subscribes both to panelStore (panel open/close) and to the global stream (useStream):
+// even with the panel closed, the button spins while this video's generation runs in the background, and
+// a click reopens the window (#16 — "I see the generation started, and I can open it").
 //
-// Native <button>, не antd — для точного контроля круглой формы. Металл (radial-gradient
-// серебро + inset bevel + drop-shadow + :hover/:active) берём из skeuoCss (.cs-metal),
-// Clogo той же природы, что и диск. Текста нет: компактно, не конкурирует с кнопками
-// YouTube; назначение — через title и aria-label (бренд «Conspect», латиницей).
+// A native <button>, not antd — for precise control of the round shape. The metal (radial-gradient
+// silver + inset bevel + drop-shadow + :hover/:active) comes from skeuoCss (.cs-metal);
+// the Clogo is of the same nature as the disc. No text: compact, does not compete with YouTube's
+// buttons; the purpose — via title and aria-label (the "Conspect" brand, in Latin script).
 import { useSyncExternalStore } from "react";
 import { isBusy, openPanel, subscribePanel } from "./panelStore";
 import { useStream } from "../useStream";
@@ -22,7 +22,7 @@ export function TriggerButton() {
   useSyncExternalStore(subscribePanel, () => (isBusy() ? 1 : 0));
   const { s: stream } = useStream();
   const panelBusy = isBusy();
-  // Стрим этого ролика может идти и при закрытой панели (панель — лишь подписчик).
+  // This video's stream may run with the panel closed (the panel is only a subscriber).
   const thisVideo = stream.status !== "idle" && !!stream.url && videoId(stream.url) === videoId(location.href);
   const busy = panelBusy || (thisVideo && (stream.status === "loading" || stream.status === "streaming"));
   return (

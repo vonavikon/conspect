@@ -1,6 +1,6 @@
-// LLM-слой: промпты конспекта и вызовы chat/completions (стрим и без).
-// Чанкинг длинных видео: транскрипт длиннее порога режется на куски, каждый кусок
-// sectionize() превращает в секции, mergeStream() собирает финальный конспект.
+// LLM layer: digest prompts and chat/completions calls (streaming and not).
+// Chunking for long videos: a transcript longer than the threshold is cut into pieces; each piece
+// sectionize() turns into sections, mergeStream() assembles the final digest.
 
 export type VideoMeta = {
   title: string;
@@ -19,12 +19,12 @@ type Deps = {
   fetchImpl?: typeof fetch;
 };
 
-// Таймаут простоя, а не общий лимит запроса. AbortSignal.timeout(ms) убивает fetch
-// ровно через ms даже при активной генерации: длинный конспект (map/reduce по многим
-// чанкам) идёт 5-10 минут, и провалы на ~303с — это как раз 300-секундный таймаут,
-// а не зависание. Здесь таймер сбрасывается на каждом чанке: поток умирает, только
-// если от LLM ничего не приходит timeoutSec подряд. Внешний сигнал (SSE-«Стоп»
-// клиента) транслируется в наш контроллер.
+// Idle timeout, not an overall request limit. AbortSignal.timeout(ms) kills the fetch
+// exactly after ms even during active generation: a long digest (map/reduce over many
+// chunks) runs 5-10 minutes, and failures at ~303s are precisely that 300-second timeout,
+// not a hang. Here the timer resets on every chunk: the stream dies only if nothing
+// arrives from the LLM for timeoutSec in a row. An external signal (the client's SSE "Stop")
+// is translated into our controller.
 class IdleAbort {
   readonly signal: AbortSignal;
   private readonly ctrl: AbortController;
@@ -40,8 +40,8 @@ class IdleAbort {
       if (external.aborted) this.abort();
       else external.addEventListener("abort", () => this.abort(), { once: true });
     }
-    // ms <= 0 — таймаут отключен вовсе: таймер не вооружаем, стрим живёт, пока
-    // клиент подключён (внешний abort) или поток не закончится сам.
+    // ms <= 0 — the timeout is disabled entirely: we do not arm the timer; the stream lives as long as
+    // the client is connected (external abort) or the stream ends on its own.
     if (this.ms > 0) this.arm();
   }
   private arm(): void {
@@ -113,7 +113,7 @@ const SYSTEM = `Ты делаешь структурированный конс�
 ## Вывод
 Авторы призывают не доверять цитатам из LLM без проверки существования источника.`;
 
-// MAP-шаг чанкинга: фрагмент транскрипта → секции «## (MM:SS) Тема» без обвязки.
+// MAP step of chunking: transcript fragment → "## (MM:SS) Topic" sections, no framing.
 const MAP_SYSTEM = `Ты делаешь тезисный конспект ФРАГМЕНТА видео по его транскрипту. Пиши на русском. Если транскрипт на другом языке — переведи содержание, а имена собственные, термины и названия оставляй в оригинале.
 
 Верни ТОЛЬКО markdown-секции, по одной на тему фрагмента, в формате:
@@ -125,7 +125,7 @@ const MAP_SYSTEM = `Ты делаешь тезисный конспект ФРА
 
 Не добавляй вступление, «Оговорку», «Основные тезисы» и «Вывод» — их соберёт отдельный шаг из всех фрагментов. Без YAML-frontmatter, без комментариев, без пустых разделов. Иди по транскрипту последовательно, не пропускай темы.`;
 
-// REDUCE-шаг: готовые секции из всех фрагментов → финальный конспект единой структуры.
+// REDUCE step: ready sections from all fragments → the final digest with a unified structure.
 const REDUCE_SYSTEM = `Ты собираешь финальный структурированный конспект видео из готовых тезисных секций (они ниже). Пиши на русском. Имена собственные, термины и названия оставляй в оригинале.
 
 Верни ТОЛЬКО markdown-тело конспекта, начиная с абзаца-вступления. Без YAML-frontmatter, без комментариев, без пустых разделов.
@@ -154,20 +154,20 @@ const REDUCE_SYSTEM = `Ты собираешь финальный структу
 
 export function createLlm(deps: Deps) {
   const f = deps.fetchImpl ?? fetch;
-  // Таймаут простоя LLM-потока (сбрасывается каждым чанком), а не общий лимит запроса.
+  // Idle timeout of the LLM stream (reset by every chunk), not an overall request limit.
   const timeoutMs = (deps.timeoutSec ?? 300) * 1000;
 
   function minsOf(meta: VideoMeta): number {
     return Math.max(1, Math.round(meta.durationSec / 60));
   }
 
-  // Провайдер (bothub) периодически отдаёт 503/502/504 — перегрузка, обычно временная.
+  // The provider (bothub) periodically returns 503/502/504 — overload, usually temporary.
   const RETRY_MAX = 2;
   const RETRY_DELAY_MS = 800;
 
-  // Открыть chat/completions с ретраем на временную недоступность провайдера (5xx).
-  // Ретраим только до первого байта: после того как текст пошёл клиенту, повторять
-  // поздно. 4xx (401/429/400) не ретраим — токен/тело/квота не починятся повтором.
+  // Open chat/completions with a retry on temporary provider unavailability (5xx).
+  // Retry only until the first byte: once text has started flowing to the client, retrying
+  // is too late. 4xx (401/429/400) is not retried — token/body/quota will not fix themselves on repeat.
   async function openStream(body: unknown, idle: IdleAbort): Promise<Response> {
     let last: Error | null = null;
     for (let attempt = 0; attempt <= RETRY_MAX; attempt++) {
@@ -187,11 +187,11 @@ export function createLlm(deps: Deps) {
     throw last ?? new Error("llm unavailable");
   }
 
-  // Общий вызов chat/completions → текст + usage. Реализован стрим-аккумуляцией поверх
-  // streamCompletion: не-стрим ответ не даёт чанков, idle-таймаут нечего сбрасывать, и
-  // генерация длиннее timeoutSec упиралась бы в жёсткий лимит (map-фаза чанкинга).
-  // Usage парсим из финального чанка: без этого map-фаза (sectionize) и не-стрим
-  // конспекта не учитываются в tokensIn/tokensOut, и done отдаёт заниженный расход.
+  // Common chat/completions call → text + usage. Implemented as stream accumulation over
+  // streamCompletion: a non-stream reply gives no chunks, the idle timeout has nothing to reset,
+  // and a generation longer than timeoutSec would hit a hard limit (the map phase of chunking).
+  // Usage is parsed from the final chunk: without it, the map phase (sectionize) and the non-stream
+  // digest are not counted in tokensIn/tokensOut, and done reports an understated spend.
   async function completion(system: string, user: string): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
     let text = "";
     let tokensIn = 0;
@@ -202,16 +202,16 @@ export function createLlm(deps: Deps) {
         if (ev.usage) { tokensIn = ev.usage.tokensIn; tokensOut = ev.usage.tokensOut; }
       }
     } catch (e) {
-      // Поток закрылся без [DONE], но весь текст уже пришёл (провайдер не отдал
-      // финальный фрейм) — принимаем накопленное, а не роняем готовую генерацию.
+      // The stream closed without [DONE], but all the text has arrived (the provider did not send
+      // the final frame) — accept the accumulated text rather than drop a finished generation.
       if (!text.trim() || !(e instanceof Error) || !e.message.includes("[DONE]")) throw e;
     }
     return { text: text.trim(), tokensIn, tokensOut };
   }
 
-  // Общий стриминговый вызов. signal — внешний AbortSignal от SSE-клиента: «Стоп»/
-  // закрытие панели обрывает fetch и read-loop, LLM перестаёт генерить.
-  // Таймаут — idle (см. IdleAbort): сбрасывается на каждом прочитанном чанке.
+  // Common streaming call. signal — the external AbortSignal from the SSE client: "Stop"/
+  // closing the panel breaks the fetch and the read loop; the LLM stops generating.
+  // The timeout is idle (see IdleAbort): reset on every chunk read.
   async function* streamCompletion(
     system: string,
     user: string,
@@ -257,11 +257,11 @@ export function createLlm(deps: Deps) {
             const choice = j.choices?.[0];
             const delta = choice?.delta?.content;
             if (delta) yield { delta };
-            // finish_reason="length" — LLM упёрся в max_tokens/лимит модели и обрезал
-            // конспект до конца видео. Пишем в лог: по «length» видно неполный конспект.
-            // Реальный кейс с bothub: после length провайдер НЕ присылает usage/[DONE]
-            // и молчит — раньше стрим висел до idle-таймаута. Генерация при length уже
-            // завершена, поэтому закрываем поток сразу, с накопленным текстом.
+            // finish_reason="length" — the LLM hit max_tokens/the model limit and cut the
+            // digest short of the video's end. Log it: "length" marks an incomplete digest.
+            // Real bothub case: after length the provider does NOT send usage/[DONE]
+            // and stays silent — the stream used to hang until the idle timeout. Generation is already
+            // complete at length, so we close the stream immediately, with the accumulated text.
             const fr = choice?.finish_reason;
             if (fr === "length") {
               console.error(`[llm] finish_reason=length: вывод обрезан по лимиту токенов`);
@@ -269,19 +269,19 @@ export function createLlm(deps: Deps) {
               return;
             }
             if (fr) console.error(`[llm] finish_reason=${fr}`);
-            // Финальный чанк (OpenAI include_usage) несёт usage без delta. usage приходит
-            // ПОСЛЕ всего контента, до [DONE] — генерация завершена и текст полный.
+            // The final chunk (OpenAI include_usage) carries usage without delta. usage arrives
+            // AFTER all content, before [DONE] — generation is complete and the text is full.
             if (j.usage) {
               gotUsage = true;
               yield { usage: { tokensIn: j.usage.prompt_tokens ?? 0, tokensOut: j.usage.completion_tokens ?? 0 } };
             }
-          } catch { /* json разрезан по чанкам — дождёмся полной строки на следующем read */ }
+          } catch { /* json split across chunks — wait for the full line on the next read */ }
         }
       }
       if (!clean && !gotUsage) throw new Error("llm stream ended without [DONE]");
     } finally {
-      // Снять idle-таймер: без этого после каждого запроса (даже штатно завершённого)
-      // в event loop до 300с висел бы живой setTimeout.
+      // Disarm the idle timer: otherwise, after every request (even a cleanly finished one)
+      // a live setTimeout would hang in the event loop for up to 300s.
       idle.dispose();
     }
   }
@@ -312,14 +312,14 @@ export function createLlm(deps: Deps) {
       return { text: r.text, tokensIn, tokensOut };
     },
 
-    // Одиночный вызов (короткие видео): весь транскрипт одним стримом.
+    // Single call (short videos): the whole transcript in one stream.
     async *conspectusStream(meta: VideoMeta & { source: string }, transcript: string, signal?: AbortSignal):
       AsyncGenerator<{ delta?: string; usage?: { tokensIn: number; tokensOut: number } }> {
       yield* streamCompletion(SYSTEM, fullUserHeader(meta, transcript), signal);
     },
 
-    // MAP: фрагмент → секции «## (MM:SS) Тема» (не стрим, текст собирается в память).
-    // Возвращает usage: map-вызовы сжигают токены, их надо прибавить к расходу merge.
+    // MAP: fragment → "## (MM:SS) Topic" sections (not streamed; text is collected in memory).
+    // Returns usage: map calls burn tokens; they must be added to the merge spend.
     async sectionize(meta: VideoMeta & { source: string }, chunkText: string): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
       const user = `Видео: «${meta.title}» (${meta.channel}).\n\nФрагмент транскрипта:\n${chunkText}`;
       let r = await completion(MAP_SYSTEM, user);
@@ -332,7 +332,7 @@ export function createLlm(deps: Deps) {
       return { text: r.text, tokensIn, tokensOut };
     },
 
-    // REDUCE: секции всех фрагментов → финальный конспект (стримится).
+    // REDUCE: sections of all fragments → the final digest (streamed).
     async *mergeStream(meta: VideoMeta & { source: string }, sectionsText: string, signal?: AbortSignal):
       AsyncGenerator<{ delta?: string; usage?: { tokensIn: number; tokensOut: number } }> {
       const user =

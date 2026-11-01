@@ -1,13 +1,13 @@
-// Внешнее хранилище панели + подписка на глобальный стрим (streamStore в SW). Живёт
-// вне React: content-скрипт дёргает openPanel(url), панель и кнопка подписаны через
-// useSyncExternalStore. Стрим держит SW — панель лишь подписчик: закрывая окно
-// (closePanel), мы только отписываем порт, дорогая генерация доигрывает в фоне, окно
-// можно вернуть повторным кликом (#11/#16). Текст появляется live: SSE → SW → broadcast.
+// External panel store + subscription to the global stream (streamStore in the SW). Lives
+// outside React: the content script calls openPanel(url), the panel and button subscribe via
+// useSyncExternalStore. The stream is held by the SW — the panel is only a subscriber: closing the
+// window (closePanel) merely unsubscribes the port; the expensive generation plays out in the background,
+// the window can be brought back by a repeat click (#11/#16). Text appears live: SSE → SW → broadcast.
 //
-// Throttle рендера (120мс) — внутри scheduleTextFlush, не на каждый delta: SW шлёт
-// снапшот на каждый токен, мы накапливаем text в pendingText и кладём в state по таймеру.
-// 120, не 60: markdown ре-парсится на каждом flush, реже flush → меньше CPU на длинном
-// стриме; визуально не отличается. Переход loading→streaming и смена meta — сразу.
+// Render throttle (120ms) — inside scheduleTextFlush, not on every delta: the SW sends
+// a snapshot per token; we accumulate text in pendingText and put it into state on a timer.
+// 120, not 60: markdown is re-parsed on every flush; fewer flushes → less CPU on a long
+// stream; visually identical. The loading→streaming transition and meta changes — immediate.
 import { REASON_TEXT, type Meta } from "./format";
 
 type PanelStatus =
@@ -25,8 +25,8 @@ export type PanelState = {
   text: string;
   meta: Meta;
   progress: { i: number; n: number } | null;
-  startedAt: number | null; // epoch-мс старта — таймер loading считает от него
-  queuePos: number | null; // позиция в очереди (с 1), когда status === "queued"
+  startedAt: number | null; // epoch-ms of the start — the loading timer counts from it
+  queuePos: number | null; // queue position (from 1) when status === "queued"
   errorText: string;
 };
 
@@ -44,8 +44,8 @@ const initial: PanelState = {
 let state: PanelState = initial;
 const listeners = new Set<() => void>();
 
-// Иммутабельная замена → между изменениями getPanelState возвращает стабильную
-// ссылку (useSyncExternalStore корректно пропускает ре-рендер).
+// Immutable replacement → between changes getPanelState returns a stable
+// reference (useSyncExternalStore correctly skips the re-render).
 export function getPanelState(): PanelState {
   return state;
 }
@@ -60,28 +60,28 @@ function set(patch: Partial<PanelState>): void {
   listeners.forEach((l) => l());
 }
 
-// --- подписка на стрим ---
+// --- stream subscription ---
 let port: chrome.runtime.Port | null = null;
-// portId — epoch порта. disconnectPort инкрементирует → слушатели старого порта
-// (onMessage/onDisconnect) видят myId !== portId и молчат. Без этого onDisconnect
-// старого порта при rotate/close срабатывал бы постфактум и вешал ложную ошибку
-// «stream_closed» на свежую сессию. Текущий порт (SW умер) — myId === portId → ошибка.
+// portId — the port epoch. disconnectPort increments it → the old port's listeners
+// (onMessage/onDisconnect) see myId !== portId and stay silent. Without it, the old
+// port's onDisconnect would fire after rotate/close and hang a spurious "stream_closed"
+// error on the fresh session. The current port (SW died) — myId === portId → error.
 let portId = 0;
-// url текущей панели: фильтр от снапшотов чужого стрима. При rotate на другой url SW
-// сначала пришлёт снапшот ещё-идущего старого стрима — пропускаем, ждём свой.
+// The current panel's url: a filter against foreign stream snapshots. On rotate to another url the SW
+// first sends a snapshot of the still-running old stream — we skip it and wait for ours.
 let openedUrl = "";
-// Последний url, который открывали через openPanel. НЕ очищается closePanel: по нему
-// content-скрипт автооткрывает панель при возврате на ролик после SPA-навигации (#8).
+// The last url opened via openPanel. NOT cleared by closePanel: the content script
+// uses it to auto-open the panel when returning to a video after SPA navigation (#8).
 let lastUrl = "";
 let lastAt = 0;
 export function getLastOpen(): { url: string; at: number } {
   return { url: lastUrl, at: lastAt };
 }
-// Видели ли уже не-idle состояние стрима. idle до этого — стартовый снапшот (до того,
-// как SW успел поставить loading), игнорируем, optimistic loading держим. idle после —
-// «остановлен без текста» → закрываем панель.
+// Whether we have already seen a non-idle stream state. idle before that — the starting snapshot (before
+// the SW managed to set loading), we ignore it and keep optimistic loading. idle after —
+// "stopped without text" → close the panel.
 let seen = false;
-// Последний текст от SW; кладётся в state.text по таймеру (throttle), не на каждый токен.
+// Latest text from the SW; goes into state.text on a timer (throttle), not per token.
 let pendingText = "";
 let renderTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -102,20 +102,20 @@ function scheduleTextFlush(): void {
 function disconnectPort(): void {
   stopKeepalive();
   if (!port) return;
-  portId++; // инвалидировать слушатели этого порта
+  portId++; // invalidate this port's listeners
   const p = port;
   port = null;
   try {
     p.disconnect();
   } catch {
-    /* порт уже мёртв */
+    /* port already dead */
   }
 }
 
-// Keepalive: SW умирает, если idle >~30с. Между meta и первым delta LLM «думает» над
-// большим транскриптом десятки секунд, шлются только ping-кадры — они не сбрасывают
-// idle-таймер SW, воркер умирает и порт рвётся. Сообщение по порту каждые 20с — событие
-// для SW, сбрасывает таймер и держит стрим живым до первого delta.
+// Keepalive: the SW dies if idle >~30s. Between meta and the first delta the LLM "thinks" over
+// a large transcript for tens of seconds, only ping frames are sent — they do not reset
+// the SW idle timer, the worker dies and the port breaks. A message over the port every 20s is an event
+// for the SW, it resets the timer and keeps the stream alive until the first delta.
 let keepaliveTimer: ReturnType<typeof setInterval> | undefined;
 function startKeepalive(): void {
   stopKeepalive();
@@ -127,7 +127,7 @@ function stopKeepalive(): void {
   if (keepaliveTimer !== undefined) { clearInterval(keepaliveTimer); keepaliveTimer = undefined; }
 }
 
-// SW → панель: {type:"state", ...StreamState}. Маппим в PanelState.
+// SW → panel: {type:"state", ...StreamState}. Mapped into PanelState.
 type StreamSnap = {
   status: string;
   url: string;
@@ -145,13 +145,13 @@ type StreamSnap = {
 
 function applyState(s: StreamSnap): void {
   if (s.status === "idle") {
-    // До первого настоящего состояния — стартовый снапшот, игнор (optimistic loading).
-    // После — стрим кончился без текста (остановлен/схлопнулся) → закрываем панель.
+    // Before the first real state — the starting snapshot, ignored (optimistic loading).
+    // After — the stream ended without text (stopped/collapsed) → close the panel.
     if (seen) closePanel();
     return;
   }
-  // Снапшот чужого стрима при rotate — пропускаем, ждём свой. Но если наш url лежит в
-  // очереди — это не «чужой», а «ждём своей очереди» (#12): показываем позицию.
+  // A foreign stream snapshot on rotate — skip, wait for ours. But if our url is in
+  // the queue, it is not "foreign" but "waiting for its turn" (#12): show the position.
   if (s.url && openedUrl && s.url !== openedUrl) {
     const pos = (s.queue ?? []).findIndex((q) => q.url === openedUrl);
     if (pos >= 0) {
@@ -181,14 +181,14 @@ function applyState(s: StreamSnap): void {
     return;
   }
   if (s.status === "cancelled") {
-    // Остановлено без текста: показываем «Прервано». SW через ~2с сбросит в idle →
-    // панель закроется сама. startedAt сохраняем — таймер досчитает в карточке прерывания.
+    // Stopped without text: show "Interrupted". The SW resets to idle in ~2s →
+    // the panel closes itself. startedAt is kept — the timer counts out in the interrupt card.
     flushNow();
     set({ status: "cancelled", url: s.url, text: "", meta, progress: null, startedAt: s.startedAt ?? null, queuePos: null, errorText: "" });
     return;
   }
-  // loading / streaming. Растёт только текст (streaming→streaming) — throttle, без
-  // лишнего ре-рендера; переход loading→streaming (первый delta) и смена meta — сразу.
+  // loading / streaming. Only text grows (streaming→streaming) — throttle, no extra
+  // re-render; the loading→streaming transition (first delta) and meta changes — immediate.
   if (!(s.status === "streaming" && state.status === "streaming")) {
     set({ status: s.status as PanelStatus, url: s.url, meta, progress: s.progress ?? null, startedAt: s.startedAt ?? null, queuePos: null });
   }
@@ -196,9 +196,9 @@ function applyState(s: StreamSnap): void {
 }
 
 export function openPanel(url: string): void {
-  // Тот же ролик и панель уже показывает идущий/готовый конспект — клик лишний: не
-  // перезапускаем, не моргаем. Смена видео или retry после ошибки — проходит. Idempotency
-  // самого стрима (повторный start того же url) дополнительно страхует в streamStore.
+  // Same video and the panel already shows a running/finished digest — the click is redundant:
+  // no restart, no flicker. A video change or a retry after an error goes through. The stream's own
+  // idempotency (a repeat start of the same url) additionally guards in streamStore.
   if (state.status !== "closed" && state.status !== "error" && state.url === url) return;
   lastUrl = url;
   lastAt = Date.now();
@@ -207,11 +207,11 @@ export function openPanel(url: string): void {
   pendingText = "";
   flushNow();
   set({ status: "loading", url, text: "", meta: {}, progress: null, startedAt: null, queuePos: null, errorText: "" });
-  disconnectPort(); // старый подписчик уходит; стрим в SW продолжается
+  disconnectPort(); // the old subscriber leaves; the SW stream continues
   const my = ++portId;
-  // connect бросает синхронно «Extension context invalidated», если вкладка держит
-  // осиротевший content script после обновления расширения. Без try/catch клик по
-  // триггеру/feed-кнопке ронял бы необработанное исключение. Честная ошибка вместо него.
+  // connect throws "Extension context invalidated" synchronously if the tab holds an
+  // orphaned content script after an extension update. Without try/catch, a click on the
+  // trigger/feed button would throw an unhandled exception. An honest error instead.
   let p: chrome.runtime.Port;
   try {
     p = chrome.runtime.connect({ name: "digest-stream" });
@@ -225,8 +225,8 @@ export function openPanel(url: string): void {
     if (my !== portId) return;
     if (m && (m as { type?: string }).type === "state") applyState(m);
   });
-  // SW умер / выгрузился, порт порвался сам (не через disconnectPort) — стрим потерян.
-  // Не оставляем «вечный streaming»: честная ошибка. my !== portId отсеивает старый порт.
+  // The SW died / got evicted and the port broke by itself (not via disconnectPort) — the stream is lost.
+  // No "eternal streaming": an honest error. my !== portId filters out the old port.
   p.onDisconnect.addListener(() => {
     if (my !== portId) return;
     port = null;
@@ -238,12 +238,12 @@ export function openPanel(url: string): void {
   try {
     p.postMessage({ type: "start", url });
   } catch {
-    /* контекст стал невалиден между connect и post — onDisconnect даст ошибку */
+    /* the context became invalid between connect and post — onDisconnect will raise the error */
   }
 }
 
 export function closePanel(): void {
-  // Только отписка: стрим в SW доигрывает в фоне. Панель можно вернуть openPanel-ом.
+  // Only unsubscribe: the SW stream plays out in the background. The panel can be restored with openPanel.
   flushNow();
   pendingText = "";
   seen = false;
@@ -252,15 +252,15 @@ export function closePanel(): void {
   set({ status: "closed", url: "", text: "", meta: {}, queuePos: null, errorText: "" });
 }
 
-// Остановить генерацию по требованию пользователя. Кредит списан бэкендом при старте
-// запроса — досрочная остановка его не возвращает. SW финализирует накопленным текстом
-// (done — показываем конспект) либо, если текста не пришло, идёт в idle → панель
-// закроется в applyState. Порт держим до финального state.
+// Stop the generation on user demand. The credit was charged by the backend at request
+// start — an early stop does not refund it. The SW finalizes with the accumulated text
+// (done — we show the digest) or, if no text arrived, goes idle → the panel
+// closes in applyState. We hold the port until the final state.
 export function stopStream(): void {
   try {
     port?.postMessage({ type: "stop" });
   } catch {
-    /* порт уже ушёл — SW финализирует без нас */
+    /* the port is gone already — the SW finalizes without us */
   }
 }
 

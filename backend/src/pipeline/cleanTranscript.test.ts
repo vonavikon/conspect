@@ -1,6 +1,6 @@
-// Golden-тест: порт cleanTranscript.ts должен давать байт-в-байт тот же результат,
-// что и clean_transcript.py в режиме --no-frontmatter. Сверка идёт с реальным Python
-// (если он есть в PATH), иначе — с зафиксированным golden-текстом.
+// Golden test: the cleanTranscript.ts port must produce byte-for-byte the same result
+// as clean_transcript.py in --no-frontmatter mode. Compared against real Python
+// (if present in PATH), otherwise against the recorded golden text.
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -12,9 +12,9 @@ import { cleanTranscript, fmtTs, parseSrtBlocks, parseTiming } from "./cleanTran
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pyPath = path.resolve(here, "../../clean_transcript.py");
 
-// Фикстура покрывает: rolling-overlap («это тест» — хвост блока 1, повтор в блоке 2),
-// сущности (&amp;), пробелы перед пунктуацией (« . », « , » и « (»), переход через
-// окно 60с и тайминг > 1 часа (H:MM:SS).
+// The fixture covers: rolling overlap ("это тест" — tail of block 1, repeated in block 2),
+// entities (&amp;), spaces before punctuation (" . ", " , " and " ("), crossing the
+// 60s window and timing > 1 hour (H:MM:SS).
 const SRT = [
   "1",
   "00:00:01,000 --> 00:00:04,000",
@@ -52,7 +52,7 @@ function runPython(srt: string): string | null {
       [pyPath, "--srt", srtPath, "--no-frontmatter"],
       { encoding: "utf8" },
     );
-    // Python-print на Windows отдаёт CRLF; нормируем к LF как в TS-порту.
+    // Python print on Windows emits CRLF; normalize to LF as the TS port does.
     return out.replace(/\r\n/g, "\n").replace(/\n$/, "");
   } catch {
     return null;
@@ -88,7 +88,7 @@ describe("cleanTranscript (порт clean_transcript.py)", () => {
     const py = runPython(SRT);
     const ts = cleanTranscript(SRT);
     if (py === null) {
-      // Python нет — сверяем с зафиксированным golden.
+      // No Python — compare against the recorded golden.
       expect(ts).toBe(GOLDEN);
       return;
     }

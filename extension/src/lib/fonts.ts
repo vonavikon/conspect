@@ -1,7 +1,7 @@
-// Self-hosted шрифты (E1): woff2 инлайнятся esbuild'ом как data: URL — ни одного
-// запроса к fonts.googleapis.com/gstatic (privacy + нет зависимости от style-src CSP
-// YouTube). Кириллица (U+0400-045F) покрывает рус./укр./бел.; latin — ASCII, цифры,
-// пунктуация. Семейства — 'Onest'/'PT Mono' (без 'Variable'), как ждёт conspectTheme.
+// Self-hosted fonts (E1): woff2 files are inlined by esbuild as data: URLs — not a
+// single request to fonts.googleapis.com/gstatic (privacy + no dependency on YouTube's
+// style-src CSP). Cyrillic (U+0400-045F) covers Rus./Ukr./Bel.; latin — ASCII, digits,
+// punctuation. Families — 'Onest'/'PT Mono' (without 'Variable'), as conspectTheme expects.
 import onestCyr from "@fontsource-variable/onest/files/onest-cyrillic-wght-normal.woff2";
 import onestLatin from "@fontsource-variable/onest/files/onest-latin-wght-normal.woff2";
 import ptCyr from "@fontsource/pt-mono/files/pt-mono-cyrillic-400-normal.woff2";
@@ -19,8 +19,8 @@ const FONTS_CSS = `
 
 const FONTS_STYLE_ID = "conspect-fonts";
 
-// Инжект <style> в document.head. Шрифты глобальны для документа — Shadow DOM панели
-// применяет их по font-family. Идемпотентно (по id).
+// Inject a <style> into document.head. Fonts are document-global — the panel's Shadow DOM
+// applies them by font-family. Idempotent (by id).
 export function injectFonts(): void {
   if (document.getElementById(FONTS_STYLE_ID)) return;
   if (!document.head) return;

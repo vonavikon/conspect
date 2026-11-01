@@ -1,5 +1,5 @@
-// Общие карточки экранов: переиспользуются панелью (ConspectPanel, Shadow DOM).
-// Чистый inline-стиль + дизайн-токены, без antd — чтобы работать и в Shadow DOM панели.
+// Shared screen cards: reused by the panel (ConspectPanel, Shadow DOM).
+// Plain inline styles + design tokens, no antd — so they also work in the panel's Shadow DOM.
 import { useEffect, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import { Clogo } from "../theme/icons";
 import {
@@ -20,29 +20,29 @@ import {
   skeuoCss,
 } from "../theme/conspectTheme";
 
-// ---------- §06 Loading: пул фактов + хуки ----------
-// 16 фактов с выдумками вычищены, грамматика причёсана. [[…]] — подсветка ключевого
-// фрагмента (класс .q). Разбор через сплит → React-узлы, без dangerouslySetInnerHTML:
-// факты — литералы compile-time, но так безопаснее.
+// ---------- §06 Loading: fact pool + hooks ----------
+// 16 facts, cleaned of fabrications, grammar polished. [[…]] marks a highlighted key
+// fragment (class .q). Parsed via split → React nodes, no dangerouslySetInnerHTML:
+// the facts are compile-time literals, but this is safer.
 const LOADING_FACTS: string[] = [
-  // Скорость
+  // Speed
   "Чтение структурированного текста быстрее просмотра видео примерно в [[10 раз]].",
   "Средняя скорость речи — [[130–150]] слов в минуту. Чтение — [[200–300]].",
   "Перечитать конспект — [[несколько минут]]. Пересмотреть видео — столько же, сколько в первый раз.",
   "Скорость [[1,5–2×]] редко добавляет понимания, чаще создаёт иллюзию.",
   "Большинство выводов из видео умещаются в [[один абзац]].",
-  // Контроль
+  // Control
   "Текст можно читать [[в тишине]]. Видео — нет.",
   "Конспект можно скормить [[ассистенту или базе знаний]].",
-  // Внимание и критика
+  // Attention and critical thinking
   "Частая смена кадров при монтаже снижает способность [[критически оценивать]] содержание.",
   "В тексте видны логические дыры. В видео они [[спрятаны за динамикой]].",
   "Чтение развивает внимание. Бесконечная лента его [[рассеивает]].",
-  // Шум и плотность
+  // Noise and density
   "Паузы, повторы и вода съедают [[до 40%]] хронометража.",
   "Длинные интро занимают [[до 5%]] видео — часы за год.",
   "Значительную часть обучающих видео можно уложить в [[три абзаца]].",
-  // Польза продукта
+  // Product value
   "Текст легко [[процитировать и передать]] — другу или в комьюнити.",
   "По конспекту видно, стоило ли видео просмотра, [[ещё до запуска]].",
   "Читать можно [[где угодно]].",
@@ -62,9 +62,9 @@ function renderFact(s: string): ReactNode[] {
     });
 }
 
-// Таймер длительности запроса «M:SS», привязанный к реальному времени старта стрима
-// (startedAt из SW). Считает от startedAt, а не от mount: повторное открытие панели или
-// попапа не сбрасывает счётчик. Без startedAt (до прихода снапшота) — от mount.
+// Request-duration timer "M:SS" bound to the stream's real start time
+// (startedAt from the SW). Counts from startedAt, not from mount: reopening the panel or
+// popup does not reset the counter. Without startedAt (before the snapshot arrives) — from mount.
 function useElapsed(startedAt: number | null): string {
   const mountAt = useRef(Date.now());
   const [now, setNow] = useState(Date.now());
@@ -78,7 +78,7 @@ function useElapsed(startedAt: number | null): string {
   return `${m}:${String(s % 60).padStart(2, "0")}`;
 }
 
-// Ротация фактов (6с на факт, как в макете). fade через opacity 300мс.
+// Fact rotation (6s per fact, as in the layout). Fade via 300ms opacity.
 function useFact(): ReactNode {
   const [i, setI] = useState(0);
   const [shown, setShown] = useState(true);
@@ -129,16 +129,16 @@ const loadingCss = `
 .cs-prog-txt{font:500 10px/1 ${FONT_MONO};color:${MUT};}
 `;
 
-// LoadingCard §06: загрузка живёт прямо в теле панели (§06 внутри §07) — без собственной
-// рамки/фона/тени, их даёт панель. Сканлайн/стадии/таймер/факт — те же. phase — эвристика
-// по фазам SSE: 0 (до meta — «Скачиваю субтитры»), 1 (meta — «Анализирую»), 2 (пошёл delta —
-// «Собираю конспект»). Бэкенд не сообщает точные статусы, поэтому стадии — индикатор по
-// событиям потока, не реальный прогресс этапов.
+// LoadingCard §06: the loader lives right in the panel body (§06 inside §07) — without its own
+// frame/background/shadow; the panel provides them. Scanline/stages/timer/fact — the same. phase is a heuristic
+// over SSE phases: 0 (before meta — "Downloading subtitles"), 1 (meta — "Analyzing"), 2 (deltas flowing —
+// "Assembling the digest"). The backend reports no exact statuses, so the stages are an indicator driven by
+// stream events, not real stage progress.
 export const STAGES = ["Скачиваю субтитры", "Анализирую", "Собираю конспект"];
 
-// Общий блок прогресса чанкинга: тонкая полоса + «Фрагмент i из N». n<=1 — короткое
-// видео без чанков, полоса не нужна. Бэкенд шлёт progress в map-фазе; на первом delta
-// SW обнуляет его — полоса уходит, стадии переключаются на «Собираю конспект».
+// Shared chunking-progress block: a thin bar + "Part i of N". n<=1 — a short
+// video without chunks, no bar needed. The backend sends progress in the map phase; on the first delta
+// the SW zeroes it — the bar goes away, the stages switch to "Assembling the digest".
 function ProgressLine({ progress }: { progress?: { i: number; n: number } | null }) {
   if (!progress || progress.n <= 1 || progress.i < 1) return null;
   const pct = Math.min(100, Math.round((progress.i / progress.n) * 100));
@@ -196,10 +196,10 @@ export function LoadingCard({ phase = 0, startedAt = null, progress = null }: { 
   );
 }
 
-// LoadingInline: тот же контент (таймер, 3 стадии, ротация фактов), но без карточной
-// обёртки — в нормальном потоке. Для попапа при генерации по ссылке: loading живёт прямо
-// в pop-body, без «рамки в рамке». Без Clogo в заголовке — в попапе он уже виден в шапке.
-// Переиспользует loadingCss (.cs-stage/.cs-load-*) из LoadingCard.
+// LoadingInline: the same content (timer, 3 stages, fact rotation) but without the card
+// wrapper — in normal flow. For the popup when generating from a link: the loader lives right
+// in pop-body, no "frame in a frame". No Clogo in the header — the popup already shows it at the top.
+// Reuses loadingCss (.cs-stage/.cs-load-*) from LoadingCard.
 export function LoadingInline({ phase = 0, startedAt = null, progress = null }: { phase?: 0 | 1 | 2; startedAt?: number | null; progress?: { i: number; n: number } | null }) {
   const elapsed = useElapsed(startedAt);
   const fact = useFact();
@@ -232,9 +232,9 @@ export function LoadingInline({ phase = 0, startedAt = null, progress = null }: 
 }
 
 // ---------- Skeleton ----------
-// Шиммер-плейсхолдер для загрузки кабинета/чтения: серые блоки с проходом-бликом
-// (вместо текста «Загрузка…»). rows — высоты строк (px); первая/последняя у́же, чтобы
-// повторять форму реального контента. <style> на экземпляр — дубли безвредны.
+// Shimmer placeholder for the dashboard/reader loading: gray blocks with a sweeping
+// highlight (instead of a "Loading…" text). rows — row heights (px); the first/last are narrower
+// to mimic the shape of real content. A <style> per instance — duplicates are harmless.
 const skCss = `
 .cs-sk{position:relative;overflow:hidden;background:${CELL2};border-radius:6px;}
 .cs-sk::after{content:"";position:absolute;inset:0;transform:translateX(-100%);

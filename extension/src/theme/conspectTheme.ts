@@ -1,32 +1,32 @@
-// Skeuomorphism дизайн-система «Конспект» (материал Карбон): углеродное плетение,
-// холодное серебро объёмов, изумрудный CTA. Акценты разнесены: primary CTA-кнопки
-// зелёные, таймкоды/фокус/stage — янтарные (brand conspect), металл (Clogo/круг-триггер/
-// точки секций) — холодное серебро. Три природы, не одна.
+// Skeuomorphic "Conspect" design system (Carbon material): carbon weave,
+// cold silver volumes, emerald CTA. Accents are split: primary CTA buttons
+// are green, timecodes/focus/stage — amber (brand conspect), metal (Clogo/trigger circle/
+// section dots) — cold silver. Three natures, not one.
 //
-// Почему inline + cs-* классы, а не antd-style createStyles: createStyles гонит стили
-// через emotion в document.head, а контент-панель живёт в Shadow DOM — туда не попадёт.
-// Skeuo-объём (градиенты/тени/состояния) вынесен в cs-* CSS-классы (skeuoCss), которые
-// каждый shadow-компонент вставляет своим <style>. antd-токены уходят в shadow через
+// Why inline + cs-* classes instead of antd-style createStyles: createStyles pushes styles
+// through emotion into document.head, while the content panel lives in Shadow DOM — they never reach it.
+// Skeuo volume (gradients/shadows/states) lives in cs-* CSS classes (skeuoCss) which
+// every shadow component injects with its own <style>. antd tokens reach the shadow via
 // StyleProvider({ container }).
 //
-// Шрифты с Google Fonts (content.tsx / options.html инжектят <link>). TODO перед публикацией
-// в Chrome Web Store: self-host woff2 (privacy + стойкость к style-src CSP YouTube).
+// Fonts from Google Fonts (content.tsx / options.html inject the <link>). TODO before publishing
+// to the Chrome Web Store: self-host woff2 (privacy + resistance to YouTube's style-src CSP).
 import type { CSSProperties } from "react";
 import { theme as antdTheme } from "antd";
 import type { ThemeConfig } from "antd";
 
-// ---------- палитра (Карбон) ----------
-export const BG = "#0c0c0e"; // фон страницы/панели
-export const CARD = "#151517"; // base поверхности (для мест без gradient)
-export const CELL = "#0a0a0c"; // вдавленные поля/ячейки (темнее surface)
+// ---------- palette (Carbon) ----------
+export const BG = "#0c0c0e"; // page/panel background
+export const CARD = "#151517"; // base surface (for places without a gradient)
+export const CELL = "#0a0a0c"; // recessed fields/cells (darker than surface)
 export const CELL2 = "#101012";
 export const HOVER = "#26262a";
 export const LINE = "#1a1a1d"; // border-soft
-export const LINE2 = "#26262a"; // border светлее
+export const LINE2 = "#26262a"; // lighter border
 export const TEXT = "#ececee";
 export const SEC = "#a8a8ad";
-// Приглушённый читаемый текст (мета, лейблы, placeholder, стадии, auth-hint). На карбоновом
-// фоне #6a6a72 даёт достаточный контраст. Иерархия SEC (#a8a8ad) остаётся светлее.
+// Muted readable text (meta, labels, placeholder, stages, auth-hint). On the carbon
+// background #6a6a72 gives enough contrast. The SEC hierarchy (#a8a8ad) stays lighter.
 export const MUT = "#6a6a72";
 export const DIM = "#3a3a3e";
 export const YT_BLUE = "#3ea6ff";
@@ -35,46 +35,46 @@ export const WARN = "#d9a441";
 export const ERR = "#e25c5c";
 export const AMBER = "#f5a623";
 
-// ---------- серебряный radial-металл (Clogo, круг-триггер, точки секций) ----------
-// Холодное серебро, высокий блик сверху-слева к тёмному краю.
+// ---------- silver radial metal (Clogo, trigger circle, section dots) ----------
+// Cold silver, a high highlight from top-left down to a dark edge.
 export const METAL_RADIAL = "radial-gradient(circle at 32% 26%, #ffffff 0%, #f0f0f2 10%, #c0c0c4 22%, #9a9a9f 42%, #6a6a72 62%, #4a4a4f 80%, #2a2a2e 94%, #08080a 100%)";
-// Точка секции в панели (adot) — компактнее, без тёмного края.
+// Section dot in the panel (adot) — more compact, without the dark edge.
 export const METAL_DOT = "radial-gradient(circle at 35% 30%, #ffffff, #f0f0f2 30%, #9a9a9f 62%, #4a4a4f 92%, #1f1f22)";
-// Amber-точка (stage.active, hero-pip) — янтарный brand-акцент, остаётся.
+// Amber dot (stage.active, hero-pip) — the amber brand accent, stays.
 export const AMBER_RADIAL = "radial-gradient(circle at 32% 26%, #ffd687, #f5a623 55%, #8a5a10)";
-// Amber-бордер для таймкод-бейджа (CTA_BORDER в карбоне зелёный, таймкод — янтарный, раздельно).
+// Amber border for the timecode badge (CTA_BORDER is green in carbon; the timecode is amber, kept separate).
 export const AMBER_BORDER = "#8a5a10";
-// Amber-градиент таймкод-бейджа (brand conspect, не зависит от материала).
+// Amber gradient of the timecode badge (brand conspect, independent of the material).
 export const AMBER_GRAD = "linear-gradient(180deg,#ffc457,#f5a623 50%,#d4881a)";
 
-// ---------- skeuo-поверхности (градиенты 180deg с фаской) ----------
-export const BORDER = "#08080a"; // тёмный outer-border карточек/панели
-export const SURFACE = "linear-gradient(180deg,#1f1f22,#151517)"; // карточка/панель
-export const SURFACE_HEAD = "linear-gradient(180deg,#26262a,#1a1a1d)"; // шапка panel/loader
+// ---------- skeuo surfaces (180deg gradients with a bevel) ----------
+export const BORDER = "#08080a"; // dark outer border of cards/panel
+export const SURFACE = "linear-gradient(180deg,#1f1f22,#151517)"; // card/panel
+export const SURFACE_HEAD = "linear-gradient(180deg,#26262a,#1a1a1d)"; // panel/loader header
 export const BTN = "linear-gradient(180deg,#2a2a2e,#1c1c1f 48%,#161618 52%,#1f1f22)";
 export const BTN_BORDER = "#08080a";
-export const CTA = "linear-gradient(180deg,#3ec47f,#2ea66f 50%,#248a5c)"; // изумрудный CTA
+export const CTA = "linear-gradient(180deg,#3ec47f,#2ea66f 50%,#248a5c)"; // emerald CTA
 export const CTA_BORDER = "#1f5c40";
 export const INPUT_BG = "#0a0a0c";
 
-// ---------- skeuo-тени (суть стиля: bevel + drop) ----------
-// Мягче и темнее бронзы: карбон матовый, фаска приглушена, drop глубже.
+// ---------- skeuo shadows (the essence of the style: bevel + drop) ----------
+// Softer and darker than bronze: carbon is matte, the bevel is muted, the drop is deeper.
 export const SHADOW_BTN = "inset 0 1px 0 rgba(255,255,255,.18), inset 0 -2px rgba(0,0,0,.55), 0 4px 7px rgba(0,0,0,.65)";
 export const SHADOW_BTN_PRESS = "inset 0 2px 4px rgba(0,0,0,.7), inset 0 -1px rgba(255,255,255,.03)";
 export const SHADOW_CARD = "inset 0 1px 0 rgba(255,255,255,.05), 0 8px 16px rgba(0,0,0,.7)";
 export const SHADOW_BADGE = "inset 0 1px 0 rgba(255,255,255,.32), inset 0 -1px rgba(0,0,0,.35), 0 2px 4px rgba(0,0,0,.55)";
 export const TXT_SHADOW = "0 1px rgba(0,0,0,.6)";
 
-// ---------- шрифты ----------
+// ---------- fonts ----------
 export const FONT_SANS = '"Onest", Roboto, Arial, sans-serif';
 export const FONT_MONO = '"PT Mono", ui-monospace, monospace';
 export const EASE = "cubic-bezier(.22,.61,.36,1)";
 
 // ---------- antd ThemeConfig ----------
-// dark algorithm. colorPrimary = серебро: antd-интерактив (Switch/Checkbox/Radio/Slider/focus)
-// становится металлом одной природы с объёмами. Зелёный (главный продукт-акцент) живёт только
-// на явных CTA-кнопках (.cs-btn.filled) и done-семантике — отдельно от antd-токенов. Имя
-// darkTheme() пришло на смену glassTheme() (editorial) — импортируется из shadowApp/options.
+// dark algorithm. colorPrimary = silver: antd interactive parts (Switch/Checkbox/Radio/Slider/focus)
+// become metal of the same nature as the volumes. Green (the main product accent) lives only on
+// explicit CTA buttons (.cs-btn.filled) and done semantics — separate from antd tokens. The
+// darkTheme() name replaced glassTheme() (editorial) — imported from shadowApp/options.
 export function darkTheme(): ThemeConfig {
   return {
     algorithm: antdTheme.darkAlgorithm,
@@ -110,8 +110,8 @@ export function darkTheme(): ThemeConfig {
   };
 }
 
-// ---------- блоки ----------
-// Skeuo-каркас панели: градиентная карбоновая поверхность + объёмная тень + тёмный кантик.
+// ---------- blocks ----------
+// Skeuo panel frame: gradient carbon surface + volumetric shadow + dark rim.
 export const panelBox: CSSProperties = {
   background: SURFACE,
   border: `1px solid ${BORDER}`,
@@ -119,21 +119,21 @@ export const panelBox: CSSProperties = {
   borderRadius: 14,
 };
 
-// Keyframes анимаций. Вставляются в <style> каждого shadow-компонента (keyframes в
-// Shadow DOM не наследуются от document).
+// Animation keyframes. Injected into each shadow component's <style> (keyframes in
+// Shadow DOM are not inherited from the document).
 export const spinKeyframes = `@keyframes clogo-spin{to{transform:rotate(360deg)}}`;
 
-// Сканлайн на фоне экрана загрузки: тонкие TV-линии, сверху вниз проходит янтарная полоса.
+// Scanline on the loading screen background: thin TV lines, an amber strip sweeps top to bottom.
 export const scanKeyframes = `@keyframes cs-scan{from{top:-60px}to{top:100%}}`;
 
-// Фон top-level страниц (read/options/popup body): глубокий карбон + холодный серебристый
-// radial-glow по углам + плотная плетёная текстура под 45° (углеродное волокно). Зелёный
-// здесь не живёт — он только на CTA-кнопках и done-семантике. В Shadow DOM панели не применяется.
+// Background of top-level pages (read/options/popup body): deep carbon + a cool silvery
+// radial glow in the corners + a dense woven texture at 45° (carbon fiber). Green does not
+// live here — only on CTA buttons and done semantics. Not applied inside the panel's Shadow DOM.
 export const pageTexCss = `background-color:${BG};background-image:radial-gradient(900px 500px at 18% -5%, rgba(255,255,255,.035), transparent 60%),radial-gradient(900px 600px at 100% 110%, rgba(255,255,255,.02), transparent 60%),repeating-linear-gradient(45deg, rgba(255,255,255,.02) 0 2px, transparent 2px 4px);`;
 
-// Skeuo CSS-примитивы — единый источник объёмных элементов (кнопки/карточки/inset-поля/
-// badges/stages/металл). Вставляются <style> в каждый shadow-компонент и в top-level
-// страницы. Классы объёмов: .btn/.panel/.input/.tc/.mini/.stage/.metal.
+// Skeuo CSS primitives — the single source of volumetric elements (buttons/cards/inset fields/
+// badges/stages/metal). Injected via <style> into every shadow component and into top-level
+// pages. Volume classes: .btn/.panel/.input/.tc/.mini/.stage/.metal.
 export const skeuoCss = `
 .cs-btn{font:600 14px ${FONT_SANS};padding:11px 20px;border-radius:9px;border:1px solid ${BTN_BORDER};background:${BTN};color:${TEXT};cursor:pointer;text-shadow:${TXT_SHADOW};box-shadow:${SHADOW_BTN};transition:filter .12s ${EASE}, transform .06s ${EASE}, box-shadow .12s ${EASE};user-select:none;display:inline-flex;align-items:center;justify-content:center;gap:8px;line-height:1;}
 .cs-btn:hover{filter:brightness(1.12)}
@@ -164,28 +164,28 @@ export const skeuoCss = `
 .cs-metal:active{transform:translateY(1px);filter:brightness(.92)}
 `;
 
-// Видимый focus-ring для keyboard-навигации (:focus-visible — только клавиатура). !important
-// перебивает inline outline:none у input'ов. Применяется глобально на каждой поверхности.
+// Visible focus ring for keyboard navigation (:focus-visible — keyboard only). !important
+// overrides the inline outline:none of inputs. Applied globally on every surface.
 export const focusRingCss = `*:focus-visible{outline:2px solid ${AMBER}!important;outline-offset:2px;border-radius:6px;}`;
 
-// Уважение prefers-reduced-motion: единственный источник для всех поверхностей.
-// animation-iteration-count:1 глушит бесконечные анимации (spin Clogo, shim-скелетон,
-// cpulse, blink-каретка, cs-scan). scroll-behavior:auto гасит smooth-scroll.
+// Respect prefers-reduced-motion: the single source for all surfaces.
+// animation-iteration-count:1 kills infinite animations (Clogo spin, shim skeleton,
+// cpulse, blink caret, cs-scan). scroll-behavior:auto disables smooth scrolling.
 export const reducedMotionCss = `@media (prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}}`;
 
-// Chrome/Safari красят автозаполненные поля жёлтым поверх нашей палитры. Обнулить переход
-// фона огромной задержкой + подменить internal box-shadow цветом инпута (INPUT_BG).
+// Chrome/Safari paint autofilled fields yellow over our palette. Kill the background
+// transition with a huge delay + replace the internal box-shadow with the input color (INPUT_BG).
 export const autofillFixCss = `input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus,input:-webkit-autofill:active{-webkit-text-fill-color:${TEXT}!important;-webkit-box-shadow:0 0 0 1000px ${INPUT_BG} inset!important;box-shadow:0 0 0 1000px ${INPUT_BG} inset!important;caret-color:${TEXT};transition:background-color 9999s ease-in-out 0s;}`;
 
-// Markdown конспекта — три слоя:
-//  • mdBodyCss — общие примитивы (ссылки, код, оговорка, кликабельные таймкоды .md-ts,
-//     каретка стрима .md-caret). Без заголовков/списков — они зависят от экрана.
-//  • panelBodyCss (.rp-body) — тело плавающей панели §07: заголовок с серебряной точкой,
-//     тезисы с DIM-точкой 11.5px по SEC.
-//  • readerBodyCss (.rd-body) — страница чтения §08: заголовок 16px + amber-бейдж
-//     таймкода .tc, тезисы с серебряной точкой 14px по SEC.
-// Заголовок «## … (MM:SS)» разбирается в lib/markdown.ts (transformSectionHeaders):
-// панель — таймкод срезается (остаётся серебряная точка), reader — уходит в бейдж .tc.
+// Digest markdown — three layers:
+//  • mdBodyCss — shared primitives (links, code, disclaimer, clickable timecodes .md-ts,
+//     the stream caret .md-caret). No headings/lists — those depend on the screen.
+//  • panelBodyCss (.rp-body) — the floating panel body §07: heading with a silver dot,
+//     theses with an 11.5px DIM dot in SEC.
+//  • readerBodyCss (.rd-body) — the reading page §08: 16px heading + amber timecode
+//     badge .tc, theses with a 14px silver dot in SEC.
+// The "## … (MM:SS)" heading is parsed in lib/markdown.ts (transformSectionHeaders):
+// the panel — the timecode is cut (a silver dot remains), the reader — it goes into the .tc badge.
 export const mdBodyCss = `
 .md-body p{margin:0;}
 .md-body blockquote{margin:18px 0 0;padding:13px 15px;background:${INPUT_BG};border:1px solid ${LINE};border-radius:9px;box-shadow:inset 0 1px 3px rgba(0,0,0,.4);font:400 11.5px/1.55 ${FONT_SANS};color:${TEXT};}
@@ -222,7 +222,7 @@ export const panelBodyCss = `
 .rp-body blockquote strong{color:inherit;}
 `;
 
-// §08 reader (.rd-body). h2 .tc — янтарный skeuo-бейдж (brand).
+// §08 reader (.rd-body). h2 .tc — the amber skeuo badge (brand).
 export const readerBodyCss = `
 .rd-body{font:400 14px/1.65 ${FONT_SANS};color:${SEC};}
 .rd-body>:first-child{margin-top:0;}

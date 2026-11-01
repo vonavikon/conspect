@@ -1,11 +1,11 @@
-// Порт clean_transcript.py на TypeScript — убирает зависимость от Python в рантайме
-// self-host сборки. Логика 1:1 с Python-версией: убирает rolling-overlap в
-// auto-captions YouTube, склеивает текст и режет на параграфы по ~60с аудио,
-// каждый с [MM:SS]-маркером. Маркеры нужны LLM, чтобы ставить таймкоды на заголовки.
+// A TypeScript port of clean_transcript.py — removes the Python dependency from the
+// self-host runtime. Logic 1:1 with the Python version: strips the rolling overlap in
+// YouTube auto-captions, joins the text, and cuts it into ~60s audio paragraphs,
+// each with an [MM:SS] marker. The markers let the LLM put timecodes on headings.
 //
-// Вход: сырой SRT-текст (каким его отдаёт yt-dlp). Выход: тело транскрипта без
-// frontmatter (то, что Python-скрипт печатает в режиме --no-frontmatter, который
-// использует оркестратор).
+// Input: raw SRT text (as yt-dlp returns it). Output: the transcript body without
+// frontmatter (what the Python script prints in --no-frontmatter mode, which the
+// orchestrator uses).
 
 const NAMED_ENTITIES: Record<string, string> = {
   amp: "&",
@@ -24,8 +24,8 @@ const NAMED_ENTITIES: Record<string, string> = {
   raquo: "»",
 };
 
-// Эквивалент python html.unescape для HTML5-сущностей, которые реально встречаются
-// в SRT: именованные (в словаре) и числовые &#NNN; / &#xNNN;.
+// An equivalent of python html.unescape for the HTML5 entities that actually occur
+// in SRT: named (in the dictionary) and numeric &#NNN; / &#xNNN;.
 export function unescapeHtml(s: string): string {
   return s.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/g, (m, body: string) => {
     if (body[0] === "#") {
@@ -42,7 +42,7 @@ export function unescapeHtml(s: string): string {
   });
 }
 
-// SRT timing line: '00:01:23,400 --> 00:01:25,000'. Возвращает start в секундах (int).
+// SRT timing line: '00:01:23,400 --> 00:01:25,000'. Returns the start in seconds (int).
 export function parseTiming(line: string): number | null {
   const m = line.trim().match(
     /^(\d+):(\d+):(\d+)[,.](\d+)\s*-->\s*(\d+):(\d+):(\d+)[,.](\d+)/,
@@ -54,7 +54,7 @@ export function parseTiming(line: string): number | null {
   return h * 3600 + mi * 60 + s;
 }
 
-// Возвращает [start_sec, text] для каждого SRT-блока (индекс и timing выкинуты).
+// Returns [start_sec, text] for each SRT block (index and timing are dropped).
 export function parseSrtBlocks(raw: string): Array<[number, string]> {
   const out: Array<[number, string]> = [];
   for (const block of raw.split(/\r?\n\r?\n/)) {
@@ -68,15 +68,15 @@ export function parseSrtBlocks(raw: string): Array<[number, string]> {
   return out;
 }
 
-// Убирает rolling-overlap auto-captions. Возвращает [word, start_sec] — каждое
-// выжившее слово несёт start своего SRT-блока, чтобы тайминг дошёл до параграфов.
+// Strips the auto-captions rolling overlap. Returns [word, start_sec] — every
+// surviving word carries the start of its SRT block, so the timing reaches the paragraphs.
 export function dedupRolling(blocks: Array<[number, string]>): Array<[string, number]> {
   const kept: Array<[string, number]> = [];
   let prevWords: string[] = [];
   for (const [start, line] of blocks) {
     const words = line.match(/\S+/g) ?? [];
     if (!words.length) continue;
-    // Наибольшее k, где prev[-k:] == words[:k].
+    // The largest k where prev[-k:] == words[:k].
     const maxK = Math.min(prevWords.length, words.length);
     let overlap = 0;
     for (let k = maxK; k > 0; k--) {
@@ -96,7 +96,7 @@ export function dedupRolling(blocks: Array<[number, string]>): Array<[string, nu
   return kept;
 }
 
-// Секунды → [H:]MM:SS для маркеров транскрипта и таймкодов тем.
+// Seconds → [H:]MM:SS for transcript markers and topic timecodes.
 export function fmtTs(sec: number): string {
   const n = Math.floor(sec);
   const h = Math.floor(n / 3600);
@@ -107,7 +107,7 @@ export function fmtTs(sec: number): string {
   return `${pad(m)}:${pad(s)}`;
 }
 
-// Чинит пробелы перед пунктуацией, возникшие при склейке слов.
+// Fixes spaces before punctuation created when words are joined.
 export function fixPunct(s: string): string {
   for (const sep of [",", ".", "!", "?", ";", ":", ")"]) {
     s = s.split(` ${sep}`).join(sep);
@@ -115,7 +115,7 @@ export function fixPunct(s: string): string {
   return s.split(" (").join("(");
 }
 
-// Группирует слова в параграфы по фиксированному окну; каждый с [MM:SS]-префиксом.
+// Groups words into paragraphs over a fixed window; each with an [MM:SS] prefix.
 export function toParagraphs(words: Array<[string, number]>, windowSec = 60): string {
   if (!words.length) return "";
   const paragraphs: Array<[number, string[]]> = [];
@@ -127,7 +127,7 @@ export function toParagraphs(words: Array<[string, number]>, windowSec = 60): st
       pbuf.push(w);
       continue;
     }
-    // Закрываем параграф, когда окно истекло.
+    // Close the paragraph when the window expires.
     if (t - pStart >= windowSec) {
       paragraphs.push([pStart, pbuf]);
       pbuf = [w];
@@ -140,7 +140,7 @@ export function toParagraphs(words: Array<[string, number]>, windowSec = 60): st
   return paragraphs.map(([start, buf]) => `[${fmtTs(start)}] ${fixPunct(buf.join(" "))}`).join("\n\n");
 }
 
-// Полный конвейер: SRT → тело транскрипта без frontmatter.
+// Full pipeline: SRT → the transcript body without frontmatter.
 export function cleanTranscript(raw: string): string {
   const blocks = parseSrtBlocks(raw);
   if (!blocks.length) throw new Error("no text blocks found in SRT");

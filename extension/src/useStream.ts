@@ -1,7 +1,7 @@
-// Подписка на глобальный стрим конспекта (streamStore в SW). Любая поверхность
-// (попап, кабинет, будущие) подключается одинаково: при connect сразу получает снапшот
-// текущего статуса, дальше — каждое изменение. Стрим переживает закрытие окна: на
-// повторном открытии снапшот вернёт «идёт/готово» (#11/#16). start/stop — команды в SW.
+// Subscription to the global digest stream (streamStore in the SW). Any surface
+// (popup, dashboard, future ones) connects the same way: on connect it immediately gets a snapshot
+// of the current status, then every change. The stream survives window closure: on
+// reopening, the snapshot returns "running/finished" (#11/#16). start/stop — commands to the SW.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { StreamStatus, QueueItem } from "./streamStore";
 
@@ -12,24 +12,24 @@ type StreamSnap = {
   title: string | null;
   phase: 0 | 1 | 2;
   error: string;
-  // errorReason — сырой код причины (not_configured/…) из SW streamStore. Нужен
-  // отдельно от человекочитаемого error: попап должен уметь отличить «сервер не
-  // настроен» от обычной ошибки и дать CTA в настройки, а не тупик.
+  // errorReason — the raw reason code (not_configured/…) from the SW streamStore. Needed
+  // separately from the human-readable error: the popup must tell "server not configured"
+  // from an ordinary error and offer a CTA to settings, not a dead end.
   errorReason: string;
-  // Момент начала работы над url (epoch-мс: клик или постановка в очередь) — таймер
-  // считает от него, не сбрасывается при повторном открытии поверхности.
+  // When work on the url began (epoch-ms: click or enqueue) — the timer counts
+  // from it and is not reset when the surface reopens.
   startedAt: number | null;
-  // Чанкинг: «часть i/N» в map-фазе длинного видео — прогресс-бар в loading-карточке.
+  // Chunking: "part i/N" in the map phase of a long video — the progress bar in the loading card.
   progress: { i: number; n: number } | null;
-  // Очередь ожидающих url'ов (снимок, в порядке добавления). Кабинет показывает её
-  // и даёт удалять/переставлять — для этого поле и приходит в снапшот.
+  // The queue of waiting urls (a snapshot, in add order). The dashboard shows it
+  // and allows removing/reordering — that is why the field arrives in the snapshot.
   queue: QueueItem[];
 };
 
 const IDLE: StreamSnap = { status: "idle", url: "", text: "", title: null, phase: 0, error: "", errorReason: "", startedAt: null, progress: null, queue: [] };
 
-// Orphaning после обновления расширения: chrome.runtime.id становится undefined,
-// connect/sendMessage бросают «Extension context invalidated». Гuard перед вызовами.
+// Orphaning after an extension update: chrome.runtime.id becomes undefined,
+// connect/sendMessage throw "Extension context invalidated" synchronously. Guard before calls.
 function isExtensionContextValid(): boolean {
   try {
     return !!chrome.runtime?.id;
@@ -53,7 +53,7 @@ export function useStream(): {
     try {
       port = chrome.runtime.connect({ name: "digest-stream" });
     } catch {
-      // Контекст стал невалиден (orphaning) — не вешаем слушателей на мёртвый порт.
+      // The context became invalid (orphaning) — do not hang listeners on a dead port.
       return;
     }
     portRef.current = port;
@@ -72,33 +72,33 @@ export function useStream(): {
         queue: m.queue ?? [],
       });
     });
-    // SW убил порт (terminator без активного стрима). Без onDisconnect хук зависал бы
-    // в застывшем state — стрим шёл, SW умер, новых onMessage нет, статус не меняется.
+    // The SW killed the port (terminator with no active stream). Without onDisconnect the hook would
+    // hang in a frozen state — the stream ran, the SW died, no new onMessage arrive, the status does not change.
     port.onDisconnect.addListener(() => {
       portRef.current = null;
     });
-    // Keepalive: держит SW живым во время долгого «первого токена» LLM — только
-    // ping-кадры не сбрасывают idle-таймер SW, воркер умирает и порт рвётся.
+    // Keepalive: keeps the SW alive during a long LLM "first token" — ping frames
+    // alone do not reset the SW idle timer; the worker dies and the port breaks.
     const ka = setInterval(() => {
-      try { port.postMessage({ type: "keepalive" }); } catch { /* порт ушёл */ }
+      try { port.postMessage({ type: "keepalive" }); } catch { /* port gone */ }
     }, 20000);
     return () => {
       clearInterval(ka);
-      try { port.disconnect(); } catch { /* уже */ }
+      try { port.disconnect(); } catch { /* already */ }
       portRef.current = null;
     };
   }, []);
   const start = useCallback((url: string) => {
-    try { portRef.current?.postMessage({ type: "start", url }); } catch { /* порт ушёл */ }
+    try { portRef.current?.postMessage({ type: "start", url }); } catch { /* port gone */ }
   }, []);
   const stop = useCallback(() => {
-    try { portRef.current?.postMessage({ type: "stop" }); } catch { /* порт ушёл */ }
+    try { portRef.current?.postMessage({ type: "stop" }); } catch { /* port gone */ }
   }, []);
   const removeFromQueue = useCallback((url: string) => {
-    try { portRef.current?.postMessage({ type: "removeFromQueue", url }); } catch { /* порт ушёл */ }
+    try { portRef.current?.postMessage({ type: "removeFromQueue", url }); } catch { /* port gone */ }
   }, []);
   const reorderQueue = useCallback((fromIndex: number, toIndex: number) => {
-    try { portRef.current?.postMessage({ type: "reorderQueue", fromIndex, toIndex }); } catch { /* порт ушёл */ }
+    try { portRef.current?.postMessage({ type: "reorderQueue", fromIndex, toIndex }); } catch { /* port gone */ }
   }, []);
   return { s, start, stop, removeFromQueue, reorderQueue };
 }

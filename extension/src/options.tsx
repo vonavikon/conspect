@@ -1,7 +1,7 @@
-// Личный кабинет self-host: очередь + архив конспектов из локального кэша
-// chrome.storage (listDigests, полный markdown уже в кэше — по сети подтягивать
-// нечего) + статистика. Настроек сервера здесь нет: адрес и токен расширение
-// читает из config.json при установке (агент или install-скрипт).
+// Self-host dashboard: queue + digest archive from the local chrome.storage cache
+// (listDigests; the full markdown is already in the cache — nothing to fetch over the
+// network) + statistics. No server settings here: the extension reads the address
+// and token from config.json at install time (an agent or the install script).
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { createPortal } from "react-dom";
@@ -46,8 +46,8 @@ function shortUrl(u: string): string {
   try { const x = new URL(u); return x.hostname.replace(/^www\./, "") + x.pathname + (x.search || ""); } catch { return u; }
 }
 
-// Видео-id из youtube-ссылки (watch/shorts/youtu.be) — для строки очереди, где ещё
-// нет заголовка: видео не начали генерировать, событие meta не приходило.
+// Video id from a youtube link (watch/shorts/youtu.be) — for a queue row that has no
+// title yet: generation has not started, no meta event has arrived.
 function videoIdOf(u: string): string {
   const m = u.match(/(?:v=|youtu\.be\/|shorts\/)([\w-]{6,})/);
   return m?.[1] ?? u;
@@ -60,22 +60,22 @@ export function Options() {
   const [openHash, setOpenHash] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const { s: stream, removeFromQueue, reorderQueue } = useStream();
-  // Индекс строки очереди, которую сейчас тащат (drag-and-drop перестановка).
+  // Index of the queue row currently being dragged (drag-and-drop reordering).
   const [dragIdx, setDragIdx] = useState<number | null>(null);
-  // Строка, над которой держат тащимый элемент. Индикатор места вставки.
+  // The row over which the dragged element is held. Insertion-point indicator.
   const [overIdx, setOverIdx] = useState<number | null>(null);
-  // Подтверждение необратимого удаления (кэш целиком / один конспект). Модалка поверх.
+  // Confirmation of an irreversible deletion (the whole cache / one digest). Modal on top.
   const [confirm, setConfirm] = useState<{ title: string; body: string; action: () => Promise<void> } | null>(null);
-  // FLIP-анимация перестановки очереди: запоминаем позицию каждой строки до/после
-  // изменения порядка и плавно съезжаем translateY (Web Animations API), не рывком.
+  // FLIP animation of queue reordering: remember each row's position before/after
+  // the order change and glide with translateY (Web Animations API), not a jerk.
   const queuePos = useRef<Map<string, number>>(new Map());
   useLayoutEffect(() => {
     const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-qid]"));
     const nextIds = rows.map((r) => r.dataset.qid ?? "");
     const prevIds = [...queuePos.current.keys()];
-    // Анимируем только фактическую перестановку/добавление/удаление (порядок id изменился).
-    // При сдвиге всего блока (баннер активного стрима сверху, title в две строки) порядок
-    // тот же — без анимации, иначе очередь «дёргается» на каждом обновлении страницы.
+    // Animate only an actual reorder/add/remove (the id order changed).
+    // When the whole block shifts (the active-stream banner on top, a two-line title), the order
+    // is the same — no animation, otherwise the queue "twitches" on every page update.
     const sameOrder = nextIds.length === prevIds.length && nextIds.every((id, i) => id === prevIds[i]);
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const next = new Map<string, number>();
@@ -107,10 +107,10 @@ export function Options() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Живое обновление архива: SW дописывает готовый конспект в chrome.storage уже после
-  // broadcast «done» (cacheDigest асинхронен), поэтому ловить момент по стриму нельзя.
-  // storage.onChanged по DIGESTS_KEY срабатывает именно на фактическую запись кэша —
-  // открытый кабинет перечитывает список без F5. Без скелетона: тихо подменяем список.
+  // Live archive refresh: the SW appends the finished digest to chrome.storage after
+  // the "done" broadcast (cacheDigest is async), so catching the moment via the stream is impossible.
+  // storage.onChanged on DIGESTS_KEY fires exactly on the actual cache write —
+  // the open dashboard re-reads the list without F5. No skeleton: we quietly swap the list.
   useEffect(() => {
     const onChange = (changes: Record<string, chrome.storage.StorageChange>, area: string): void => {
       if (area !== "local" || !changes[DIGESTS_KEY]) return;
@@ -181,7 +181,7 @@ export function Options() {
     void chrome.tabs.create({ url: chrome.runtime.getURL(`read.html?h=${encodeURIComponent(d.urlHash)}&u=${encodeURIComponent(d.url)}`) });
   };
 
-  // ?expand=<hash> (из попапа «недавние»): раскрыть превью этого конспекта и докрутить.
+  // ?expand=<hash> (from the popup's "recent"): expand that digest's preview and scroll to it.
   useEffect(() => {
     if (!initialExpand || loadingHist) return;
     const row = digests.find((d) => d.urlHash === initialExpand);
@@ -190,7 +190,7 @@ export function Options() {
     requestAnimationFrame(() => {
       document.getElementById(`cab-row-${row.urlHash}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
-    // одноразовое: зависит только от готовности списка
+    // one-shot: depends only on the list being ready
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialExpand, loadingHist]);
 
@@ -218,9 +218,9 @@ export function Options() {
       <style>{skeuoCss}{focusRingCss}{spinKeyframes}{`.cs-cab-q::placeholder{color:${MUT}}.cs-set-input{width:100%;font:500 12.5px ${FONT_MONO};padding:9px 11px;border-radius:9px;border:1px solid ${BORDER};background:${INPUT_BG};color:${TEXT};box-shadow:inset 0 2px 4px rgba(0,0,0,.5),inset 0 1px 0 rgba(0,0,0,.4);transition:box-shadow .12s ${EASE},border-color .12s ${EASE}}.cs-set-input::placeholder{color:${MUT}}.cs-set-input:focus{outline:none;border-color:${AMBER};box-shadow:inset 0 2px 4px rgba(0,0,0,.5),0 0 0 2px rgba(245,166,35,.55)}.cab-expand{max-height:0;overflow:hidden;opacity:0;padding:0 18px;border-top:1px solid transparent;background:${CELL};transition:max-height .32s ${EASE},opacity .24s ${EASE},padding .32s ${EASE},border-top-color .2s ${EASE}}.cab-expand.open{max-height:1600px;opacity:1;padding:13px 18px 15px;border-top-color:#161616}.cs-cab-grid{display:grid;grid-template-columns:320px minmax(440px,1fr) 260px;gap:22px;align-items:start}@media (max-width:1500px){.cs-cab-grid{grid-template-columns:1fr 1fr}.cs-cab-archive{grid-column:1/-1}}@media (max-width:760px){.cs-cab-grid{grid-template-columns:1fr}}@keyframes cs-health-fade{from{opacity:0;transform:translateY(2px)}to{opacity:1;transform:none}}.cs-health-fade{animation:cs-health-fade .22s ${EASE}}`}</style>
       <style>{reducedMotionCss}</style>
 
-      {/* --- сетка ЛК: 3 блока по горизонтали — Очередь | Архив | Статистика --- */}
+      {/* --- dashboard grid: 3 blocks horizontally — Queue | Archive | Statistics --- */}
       <div className="cs-cab-grid" style={{ width: "100%", maxWidth: 1720 }}>
-        {/* --- очередь --- */}
+        {/* --- queue --- */}
         <div style={cardStyle}>
           <div style={cardHeadStyle}>
             <span style={{ font: `800 15px ${FONT_SANS}`, whiteSpace: "nowrap" }}>Очередь</span>
@@ -230,7 +230,7 @@ export function Options() {
             <span style={{ flex: 1 }} />
           </div>
 
-        {/* баннер активного стрима: генерация идёт/готова → открыть окно. */}
+        {/* active-stream banner: generation running/finished → open the window. */}
         {stream.status !== "idle" && stream.status !== "cancelled" && (() => {
           const done = stream.status === "done";
           const failed = stream.status === "error";
@@ -257,8 +257,8 @@ export function Options() {
           );
         })()}
 
-        {/* очередь (#12): ожидающие url'ы, с удалением и перестановкой drag-and-drop.
-            Показываем только когда активный стрим занят и накопились ожидающие. */}
+        {/* queue (#12): waiting urls, with removal and drag-and-drop reordering.
+            Shown only while the active stream is busy and waiting urls have piled up. */}
         {stream.queue.length > 0 && (
           <div style={{ padding: "12px 18px", borderTop: `1px solid ${LINE}`, background: "linear-gradient(180deg,rgba(245,166,35,.06),rgba(245,166,35,.015))", boxShadow: "inset 0 1px 0 rgba(255,255,255,.03)" }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -301,7 +301,7 @@ export function Options() {
         )}
         </div>
 
-        {/* --- архив --- */}
+        {/* --- archive --- */}
         <div className="cs-cab-archive" style={cardStyle}>
           <div style={cardHeadStyle}>
             <span style={{ font: `800 15px ${FONT_SANS}` }}>Архив</span>
@@ -310,7 +310,7 @@ export function Options() {
             {digests.length > 0 && <button onClick={() => void onClear()} className="cs-btn sm">Очистить кэш</button>}
           </div>
 
-        {/* поиск */}
+        {/* search */}
         <div style={{ padding: "11px 18px 4px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 9, background: INPUT_BG, border: `1px solid ${BORDER}`, borderRadius: 10, padding: "8px 11px", boxShadow: "inset 0 2px 4px rgba(0,0,0,.5), inset 0 1px 0 rgba(0,0,0,.4)" }}>
             <IconSearch size={15} style={{ color: MUT, flex: "0 0 auto" }} />
@@ -318,7 +318,7 @@ export function Options() {
           </div>
         </div>
 
-        {/* шапка колонок */}
+        {/* column headers */}
         <div style={{ display: "grid", gridTemplateColumns: cols, gap: 11, padding: "10px 18px", font: `600 10px ${FONT_SANS}`, color: MUT, letterSpacing: ".06em", textTransform: "uppercase", borderBottom: `1px solid ${LINE}` }}>
           <span>Дата</span><span>Видео</span><span>Длит.</span><span>Сохранено</span><span />
         </div>
@@ -401,7 +401,7 @@ export function Options() {
         )}
         </div>
 
-        {/* --- общая статистика --- */}
+        {/* --- overall statistics --- */}
         <div style={cardStyle}>
           <div style={cardHeadStyle}>
             <span style={{ font: `800 15px ${FONT_SANS}` }}>Статистика</span>
@@ -422,9 +422,9 @@ export function Options() {
         </div>
       </div>
 
-      {/* Модалка подтверждения — через портал в body: fixed-центрирование не зависит от
-          transform-анимации корня (cs-page-in), которая иначе делает корень containing
-          block и сдвигает модалку вниз страницы вместо центра вьюпорта. */}
+      {/* Confirmation modal — via a portal into body: fixed centering then does not depend on
+          the root's transform animation (cs-page-in), which otherwise makes the root the containing
+          block and shifts the modal down the page instead of the viewport center. */}
       {confirm && createPortal(
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, animation: `cs-page-in .18s ${EASE} both` }} onClick={() => setConfirm(null)}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 14, width: "calc(100% - 40px)", maxWidth: 380, padding: "20px 22px", boxShadow: "0 24px 64px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.06)" }}>
@@ -442,9 +442,9 @@ export function Options() {
   );
 }
 
-// Разворот строки архива с анимацией max-height/opacity (как .cs-pop-expand в попапе).
-// При open=true монтируется и в следующем кадре раскрывается; при open=false доигрывает
-// закрытие ~340мс, потом размонтируется. Содержимое держим всё это время.
+// Archive-row expansion with a max-height/opacity animation (like .cs-pop-expand in the popup).
+// On open=true it mounts and expands on the next frame; on open=false it plays out the
+// ~340ms close, then unmounts. The content is kept the whole time.
 function Expand({ open, children }: { open: boolean; children: ReactNode }) {
   const [shown, setShown] = useState(open);
   const [cls, setCls] = useState(open);

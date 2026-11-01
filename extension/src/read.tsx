@@ -1,10 +1,10 @@
-// Страница чтения конспекта во вкладке (§08 reader). Открывается из архива
-// («Читать полностью») — read.html?h=<urlHash>&u=<sourceUrl>. Читает готовый конспект
-// из локального кэша chrome.storage (getDigest), рендерит markdown, строит оглавление
-// с таймкодами из заголовков «## … (MM:SS)» и прогресс-бар чтения.
+// The in-tab digest reading page (§08 reader). Opened from the archive
+// ("Read in full") — read.html?h=<urlHash>&u=<sourceUrl>. Reads the finished digest
+// from the local chrome.storage cache (getDigest), renders markdown, builds the outline
+// with timecodes from "## … (MM:SS)" headings plus a reading progress bar.
 //
-// Шапка-бар липкая при скролле: назад в архив, заголовок, иконки скопировать/скачать/
-// YouTube. Полный текст внизу без отдельного футера — действия собраны в шапке.
+// The header bar is sticky on scroll: back to the archive, title, copy/download/
+// YouTube icons. Full text below, no separate footer — the actions sit in the header.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { renderMarkdown } from "./lib/markdown";
@@ -65,10 +65,10 @@ export function Read() {
     })();
   }, [urlHash]);
 
-  // Оглавление — из тех же отрендеренных h2, по которым скроллим. Единый источник
-  // (DOM, а не сырой markdown) + сохранённый индекс убирают рассинхрон чипа и цели.
-  // Заголовок «## Название (12:34)» рендерится как .rd-sh-t (название) + .tc (таймкод):
-  // см. transformSectionHeaders в lib/markdown.ts.
+  // The outline — from the same rendered h2 elements we scroll to. A single source
+  // (the DOM, not raw markdown) + the saved index remove chip/target desync.
+  // A "## Title (12:34)" heading renders as .rd-sh-t (title) + .tc (timecode):
+  // see transformSectionHeaders in lib/markdown.ts.
   useEffect(() => {
     const root = bodyRef.current;
     if (!root || !data?.markdown) { setToc([]); return; }
@@ -82,8 +82,8 @@ export function Read() {
     setToc(items);
   }, [data]);
 
-  // Прогресс чтения: доля прокрутки страницы. rAF-дебаунс: без него каждый scroll-tick
-  // звал setProgress → ре-рендер корневого Read → перевычисление splitTldr/renderMarkdown.
+  // Reading progress: the page scroll fraction. rAF debounce: without it every scroll tick
+  // called setProgress → a re-render of the root Read → re-running splitTldr/renderMarkdown.
   useEffect(() => {
     let raf = 0;
     const onScroll = (): void => {
@@ -120,15 +120,15 @@ export function Read() {
 
   async function copy(): Promise<boolean> {
     const text = fullMd();
-    // Возвращаем промис, чтобы «✓ Скопировано» показывалось только после реальной
-    // записи, а не синхронно до settle — иначе при реджекте буфера пользователь
-    // видел бы успех при провале. 1:1 с copy() в ConspectPanel.
+    // Return a promise so "✓ Copied" shows only after the actual write,
+    // not synchronously before settle — otherwise, if the clipboard rejects,
+    // the user would see success on failure. 1:1 with copy() in ConspectPanel.
     try {
       await navigator.clipboard.writeText(text);
       return true;
     } catch {
-      // Не-secure context / нет фокуса — clipboard API может быть недоступен.
-      // Фолбэк на устаревший, но рабочий execCommand поверх основного документа.
+      // Non-secure context / no focus — the clipboard API may be unavailable.
+      // Fall back to the deprecated but working execCommand over the main document.
       try {
         const ta = document.createElement("textarea");
         ta.value = text;
@@ -148,8 +148,8 @@ export function Read() {
 
   const sv = savedMinutes(data?.durationSec ?? null);
   const lang = data?.lang && data.lang !== "ru" ? data.lang.toUpperCase() : "RU";
-  // memo: разбор/рендер markdown тяжёлые, а корневой Read ре-рендерится на каждом
-  // scroll-tick (прогресс-бар). Без memo весь конспект ре-парсится каждый кадр.
+  // memo: markdown parsing/rendering is heavy, and the root Read re-renders on every
+  // scroll tick (progress bar). Without memo the whole digest re-parses every frame.
   const { tldr, body: fullBody } = useMemo(
     () => (data?.markdown ? splitTldr(data.markdown) : { tldr: "", body: "" }),
     [data?.markdown],
@@ -169,11 +169,11 @@ export function Read() {
       <style>{`.rd-tldr-txt p{margin:0;}`}</style>
       <style>{reducedMotionCss}</style>
       <div style={{ minHeight: "100vh", padding: "40px 16px 64px", display: "flex", justifyContent: "center", animation: `cs-page-in .26s ${EASE} both` }}>
-        {/* Карточка без overflow:hidden — иначе position:sticky шапки не липнет
-            (overflow:hidden превращает её в scroll-контейнер без прокрутки). */}
+        {/* Card without overflow:hidden — otherwise the sticky header does not stick
+            (overflow:hidden turns it into a scroll container without scrolling). */}
         <div className="cs-card" style={{ width: "100%", maxWidth: 720, borderRadius: 16, boxShadow: "0 24px 60px rgba(0,0,0,.55)", display: "flex", flexDirection: "column" }}>
-          {/* Липкая шапка + прогресс-бар: обёрнуты в общий sticky-контейнер, чтобы полоса
-              чтения липла к viewport вместе с шапкой, а не уезжала при скролле. */}
+          {/* Sticky header + progress bar: wrapped in a shared sticky container so the reading
+              bar sticks to the viewport together with the header instead of sliding away. */}
           <div style={{ position: "sticky", top: 0, zIndex: 5, flex: "0 0 auto" }}>
             <div className="rd-bar" style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: SURFACE_HEAD, borderBottom: `1px solid ${BORDER}`, borderRadius: "16px 16px 0 0", boxShadow: "inset 0 1px 0 rgba(255,255,255,.08)" }}>
               <a href={cabinetHref} title="Назад в архив" aria-label="Назад в архив" className="cs-mini" style={{ flex: "0 0 auto", textDecoration: "none" }}><IconArrowLeft size={14} /></a>
@@ -186,13 +186,13 @@ export function Read() {
               )}
             </div>
 
-            {/* Прогресс чтения — полоса под липкой шапкой */}
+            {/* Reading progress — the bar under the sticky header */}
             <div style={{ height: 3, background: CELL, boxShadow: "inset 0 1px 2px rgba(0,0,0,.4)" }}>
               <div style={{ height: "100%", width: `${progress * 100}%`, background: CTA, boxShadow: "inset 0 1px 0 rgba(255,255,255,.3)", transition: "width .1s linear" }} />
             </div>
           </div>
 
-          {/* Контент 640 */}
+          {/* Content 640 */}
           <div style={{ maxWidth: 640, width: "100%", margin: "0 auto", padding: "28px 24px 8px", boxSizing: "border-box" }}>
             {loading ? (
               <div style={{ padding: "8px 0" }}>
@@ -215,7 +215,7 @@ export function Read() {
                   {sv > 0 && (<><span style={{ color: DIM }}>·</span><span>сохранено</span><span style={{ color: OK }}>{fmtSavedMin(sv)}</span></>)}
                 </div>
 
-                {/* Главная мысль — текстом, без обрамления (как в кабинете/попапе) */}
+                {/* The main idea — as text, without framing (as in the dashboard/popup) */}
                 {tldr && (
                   <div style={{ padding: 0, marginBottom: 26 }}>
                     <span style={{ display: "block", font: `700 9.5px ${FONT_MONO}`, color: YT_BLUE, letterSpacing: ".08em", textTransform: "uppercase", marginBottom: 8 }}>Главная мысль</span>
@@ -227,7 +227,7 @@ export function Read() {
                   </div>
                 )}
 
-                {/* Оглавление с таймкодами */}
+                {/* Outline with timecodes */}
                 {toc.length > 0 && (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 26, paddingBottom: 20, borderBottom: `1px solid ${LINE}` }}>
                     {toc.map((t) => (
@@ -239,7 +239,7 @@ export function Read() {
                   </div>
                 )}
 
-                {/* Тело конспекта */}
+                {/* Digest body */}
                 <div ref={bodyRef}>
                   <article className="md-body rd-body" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
                 </div>
@@ -252,7 +252,7 @@ export function Read() {
   );
 }
 
-// Чип оглавления reader — skeuo-кнопка-переключатель с amber tc-бейджем внутри (.cs-tc).
+// Reader outline chip — a skeuo toggle button with an amber tc badge inside (.cs-tc).
 const tocChip: React.CSSProperties = {
   display: "inline-flex", alignItems: "center", gap: 7, padding: "5px 10px",
   borderRadius: 7, cursor: "pointer", border: `1px solid ${BTN_BORDER}`, background: BTN, color: SEC,

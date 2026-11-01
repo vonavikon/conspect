@@ -22,9 +22,9 @@ const orchestrator = createOrchestrator({ youtube, transcript, llm, maxDurationM
 
 const app = createApp({ cfg, orchestrator });
 
-// Автообновление yt-dlp при старте (опционально, YTDLP_AUTO_UPDATE=1). Не блокируем
-// старт: это фоновая задача. yt-dlp -U качает свежий бинарник поверх текущего; в
-// probe/download уже стоит --no-update, так что в процессе работы yt-dlp в сеть не лезет.
+// yt-dlp auto-update at startup (optional, YTDLP_AUTO_UPDATE=1). It does not block
+// startup: this is a background task. yt-dlp -U downloads a fresh binary over the current one;
+// probe/download already pass --no-update, so yt-dlp does not touch the network at runtime.
 if (cfg.ytdlpAutoUpdate) {
   const bin = resolveYtdlpBin(here);
   execFile(bin, ["-U"], { timeout: 120_000 }, (err, stdout) => {

@@ -1,33 +1,33 @@
-// Глобальное состояние стрима конспекта в service worker + очередь (#12). Живёт ВНЕ
-// привязки к конкретному окну: один активный стрим, остальные url'ы ждут в очереди,
-// много подписчиков (панель на YouTube, попап, кабинет, кнопка-триггер). Раньше стрим
-// держал один порт: закрыл панель/попап → port.onDisconnect → AbortController.abort() →
-// дорогой пайплайн умирал, частичный текст терялся (#11/#16). Теперь подписчик, ушедший
-// без явной остановки, только отпишется — стрим доиграет до done, результат в SW.
+// Global digest-stream state in the service worker + queue (#12). Lives OUTSIDE
+// any window binding: one active stream, other urls wait in the queue,
+// many subscribers (panel on YouTube, popup, dashboard, trigger button). Before, the stream was
+// held by a single port: close the panel/popup → port.onDisconnect → AbortController.abort() →
+// the expensive pipeline died, partial text lost (#11/#16). Now a subscriber that leaves
+// without an explicit stop merely unsubscribes — the stream plays out to done, the result stays in the SW.
 //
-// N=1 + очередь: активный стрим всегда один. start(url) на другом url ставит его в конец
-// очереди (без дублей). done/error/stop активного продвигает очередь — следующий url
-// стартует сам. Закрытие окна не снимает задачу из очереди: доиграет в фон, результат
-// уйдёт в кэш. Пул N>1 позже делается заменой advanceQueue (брать по слоту, а не один).
+// N=1 + queue: there is always exactly one active stream. start(url) on another url appends it to the
+// queue (no duplicates). done/error/stop of the active one advances the queue — the next url
+// starts by itself. Closing a window does not remove a task from the queue: it finishes in the
+// background, the result goes to the cache. A pool with N>1 can later be done by replacing advanceQueue (take per slot, not one).
 //
-// Протокол по порту "digest-stream":
-//   подписчик → SW:  {type:"start", url} | {type:"stop"} | {type:"keepalive"}
-//   SW → подписчик:  {type:"state", ...StreamState}   (полный снапшот на каждое изменение
-//                    и сразу при подключении; queue — снимок ожидающих url'ов, в порядке)
+// Protocol over the "digest-stream" port:
+//   subscriber → SW:  {type:"start", url} | {type:"stop"} | {type:"keepalive"}
+//   SW → subscriber:  {type:"state", ...StreamState}   (full snapshot on every change
+//                    and immediately on connect; queue — a snapshot of waiting urls, in order)
 import { getDigest, loadSettings, putDigest } from "./lib/store.js";
 import { playDoneSound } from "./audio";
 import { hashUrl, REASON_TEXT } from "./panel/format";
 
-// Версия клиента, которую бэкенд пишет в лог — по ней видно, что пользователь
-// перезагрузил расширение с актуальным keepalive.
+// Client version the backend writes to its log — by it we can see that the user
+// reloaded the extension with the current keepalive.
 const CLIENT_VERSION = "v3-queue";
 
 export type StreamStatus = "idle" | "loading" | "streaming" | "done" | "error" | "cancelled";
 
-// Элемент очереди: url + (опционально) заголовок. Заголовок резолвится по oEmbed, пока
-// ролик ждёт своей очереди — чтобы в кабинете вместо хэша показывать полное название.
-// startedAt — момент постановки: когда очередь дошла до ролика, таймер конспекта
-// продолжает считать от него, а не стартует заново (общее время включает ожидание).
+// Queue item: url + (optionally) title. The title is resolved via oEmbed while the
+// video waits in the queue — so the dashboard shows the full name instead of a hash.
+// startedAt — the enqueue moment: when the queue reaches the video, the digest timer
+// keeps counting from it instead of restarting (total time includes the wait).
 export type QueueItem = { url: string; title?: string; startedAt: number };
 
 type StreamState = {
@@ -38,12 +38,12 @@ type StreamState = {
   channel: string | null;
   durationSec: number | null;
   lang: string | null;
-  phase: 0 | 1 | 2; // 0 до meta, 1 meta, 2 пошёл delta — эвристика стадий loading §06
-  progress: { i: number; n: number } | null; // чанкинг: «часть i/N», пока идёт map-фаза
-  startedAt: number | null; // epoch-мс начала работы над url (клик или постановка в очередь)
-  queue: QueueItem[]; // ожидающие url'ы (в порядке добавления) — снимок для подписчиков
-  error: string; // человекочитаемый текст (REASON_TEXT); пусто для не-error
-  errorReason: string; // сырой reason (not_authed/no_credits/…) — для маппинга в карточки
+  phase: 0 | 1 | 2; // 0 before meta, 1 meta, 2 deltas flowing — stage heuristic for loading §06
+  progress: { i: number; n: number } | null; // chunking: "part i/N" while the map phase runs
+  startedAt: number | null; // epoch-ms of when work on the url began (click or enqueue)
+  queue: QueueItem[]; // waiting urls (in add order) — snapshot for subscribers
+  error: string; // human-readable text (REASON_TEXT); empty for non-error
+  errorReason: string; // raw reason (not_authed/no_credits/…) — for mapping to cards
 };
 
 const IDLE: StreamState = {
@@ -53,12 +53,12 @@ const IDLE: StreamState = {
 
 let state: StreamState = { ...IDLE };
 const subs = new Set<chrome.runtime.Port>();
-// Единственный источник очереди. state.queue — всегда снимок этого массива (set кладёт
-// его поверх любого patch), сама очередь живёт здесь, в module-level, и НЕ персистится.
+// The single source of the queue. state.queue is always a snapshot of this array (set puts
+// it over any patch); the queue itself lives here, at module level, and is NOT persisted.
 let queue: QueueItem[] = [];
 let ctrl: AbortController | null = null;
 
-// Кэш заголовков по url (oEmbed) — чтобы не дёргать YouTube повторно для одного ролика.
+// Title cache by url (oEmbed) — to avoid hitting YouTube repeatedly for one video.
 const titleCache = new Map<string, string>();
 
 async function resolveTitle(url: string): Promise<string | null> {
@@ -76,23 +76,23 @@ async function resolveTitle(url: string): Promise<string | null> {
   }
 }
 
-// SW эфемерен: module-level state переживает закрытие окна, но НЕ терминатор SW
-// (~30с idle). До правды доживает только выполненный результат: done/error пишем в
-// chrome.storage.session, при новом подъёме SW восстанавливаем — иначе повторный клик
-// по уже-готовому url видел бы IDLE и перезапускал стрим (бэкенд списал бы кредит дважды).
-// Живой loading/streaming не персистим: активный SSE-fetch держит SW, а после обрыва
-// безdone результат всё равно потерян — restore имеет смысл только для терминала.
+// The SW is ephemeral: module-level state survives window closure but NOT the SW
+// terminator (~30s idle). Only a finished result survives: done/error is written to
+// chrome.storage.session and restored when the SW wakes up again — otherwise a repeat
+// click on an already-done url would see IDLE and restart the stream (the backend would charge the credit twice).
+// Live loading/streaming is not persisted: an active SSE-fetch keeps the SW alive, and after a break
+// without done the result is lost anyway — restore only makes sense for terminal states.
 const STATE_KEY = "conspect_stream_v1";
 let restored = false;
 const restoreP = (async () => {
   try {
     const v = await chrome.storage.session.get(STATE_KEY);
     const saved = v[STATE_KEY] as StreamState | undefined;
-    // queue НЕ восстанавливаем: она в памяти и не доживает до терминатора SW. Снимок
-    // из saved устарел бы (другой SW-подъём), держим чистый [].
+    // queue is NOT restored: it lives in memory and does not survive the SW terminator. A snapshot
+    // from saved would be stale (a different SW run); we keep a clean [].
     if (saved && (saved.status === "done" || saved.status === "error")) state = { ...saved, queue: [] };
   } catch {
-    /* session storage недоступен — работаем как раньше, из памяти */
+    /* session storage unavailable — work as before, from memory */
   }
   restored = true;
 })();
@@ -109,11 +109,11 @@ function persist(): void {
 }
 
 function safePost(port: chrome.runtime.Port, msg: unknown): void {
-  try { port.postMessage(msg); } catch { /* порт уже закрыт — подписчик ушёл */ }
+  try { port.postMessage(msg); } catch { /* port already closed — subscriber gone */ }
 }
 
 function set(patch: Partial<StreamState>): void {
-  // queue подмешиваем всегда: любой patch не должен «терять» актуальную очередь.
+  // queue is always mixed in: no patch may "lose" the current queue.
   state = { ...state, ...patch, queue: [...queue] };
   broadcast();
   persist();
@@ -123,10 +123,10 @@ function broadcast(): void {
   for (const p of subs) safePost(p, msg);
 }
 
-// Новый подписчик: сразу получает снапшот текущего стрима (даже idle — чтобы понять,
-// что генерации нет). Отписка НЕ останавливает стрим — он пережил закрытие окна.
-// Если SW только поднялся и restore из session ещё не дошёл — дождёмся, иначе
-// подпишчик получит IDLE поверх восстановленного done и запустит стрим заново.
+// New subscriber: immediately gets a snapshot of the current stream (even idle — to know
+// there is no generation). Unsubscribing does NOT stop the stream — it survived the window closing.
+// If the SW just woke up and the session restore has not finished — wait for it, otherwise
+// the subscriber would get IDLE over a restored done and restart the stream.
 export function subscribe(port: chrome.runtime.Port): void {
   subs.add(port);
   const send = (): void => safePost(port, { type: "state", ...state });
@@ -141,8 +141,8 @@ function isLive(s: StreamState): boolean {
   return s.status === "loading" || s.status === "streaming" || s.status === "done";
 }
 
-// Сохранить готовый конспект в локальный кэш (self-host: сервер не хранит). meta-поля
-// берём из текущего state — к моменту done они уже пришли событием meta.
+// Save the finished digest to the local cache (self-host: the server stores nothing). meta fields
+// come from the current state — by done time they have already arrived via the meta event.
 async function cacheDigest(url: string, markdown: string): Promise<void> {
   if (!markdown.trim()) return;
   try {
@@ -156,12 +156,12 @@ async function cacheDigest(url: string, markdown: string): Promise<void> {
       lang: state.lang,
       markdown,
     });
-  } catch { /* квота/недоступно — кэш не критичен */ }
+  } catch { /* quota/unavailable — the cache is not critical */ }
 }
 
-// Единый финал «готово»: терминальный state + кэш + звук-уведомление. Используем во
-// всех ветках, где конспект реально собрался (SSE done, маскированный error, обрыв
-// потока с текстом). stopStream звук НЕ играет — остановку инициировал сам пользователь.
+// Single "finished" finale: terminal state + cache + notification sound. Used in all
+// branches where the digest actually completed (SSE done, masked error, stream break
+// with text). stopStream plays no sound — the stop was initiated by the user.
 function markDone(url: string, markdown: string): void {
   set({ text: markdown, status: "done" });
   void cacheDigest(url, markdown);
@@ -169,20 +169,20 @@ function markDone(url: string, markdown: string): void {
 }
 
 export async function startStream(url: string, since?: number): Promise<void> {
-  // Подождать restore из session: если SW только поднялся, state ещё IDLE, а в session
-  // лежит done для этого url — без ожидания guard не сработает и стрим перезапустится.
+  // Wait for the session restore: if the SW just woke up, state is still IDLE while session
+  // holds a done for this url — without waiting, the guard fails and the stream restarts.
   if (!restored) await restoreP;
-  // Тот же url и стрим жив (идёт или уже готов) — не перезапускаем: повторные клики
-  // только переподписываются.
+  // Same url and the stream is live (running or already done) — do not restart: repeat clicks
+  // merely re-subscribe.
   if (state.url === url && isLive(state)) return;
-  // Активный стрим занят другим url — ставим в очередь (без дублей, без лимита). N=1:
-  // параллельно не генерируем, url ждёт своего момента. Когда активный done/error/stop —
-  // advanceQueue запустит следующий и пробросит момент постановки (таймер без сброса).
+  // The active stream is busy with another url — enqueue (no duplicates, no limit). N=1:
+  // no parallel generation, the url waits its turn. When the active one is done/error/stop —
+  // advanceQueue starts the next and passes through the enqueue moment (timer without reset).
   if (state.status === "loading" || state.status === "streaming") {
     if (!queue.some((q) => q.url === url)) {
       queue.push({ url, startedAt: since ?? Date.now() });
-      set({}); // обновить снимок очереди в state + broadcast
-      // Резолвим заголовок асинхронно: в кабинете очередь покажет название вместо хэша.
+      set({}); // refresh the queue snapshot in state + broadcast
+      // Resolve the title asynchronously: the dashboard queue will show the name instead of a hash.
       void resolveTitle(url).then((t) => {
         const item = queue.find((q) => q.url === url);
         if (item && t && !item.title) { item.title = t; set({}); }
@@ -190,13 +190,13 @@ export async function startStream(url: string, since?: number): Promise<void> {
     }
     return;
   }
-  // Кэш: конспект для этого url уже собран и лежит в локальном хранилище — не гоняем
-  // пайплайн и не жжём LLM-кредит повторно, сразу отдаём готовый markdown. Проверяем
-  // здесь, ПОСЛЕ ветки очереди: если активный стрим занят другим url, глобальный state
-  // один — переключение его на «done» поверх живого стрима давало бы гонку с delta.
-  // В очереди url дождётся освобождения и сюда вернётся уже без активного стрима.
-  // Сброс кэша — удаление конспекта в кабинете (deleteDigest): снова сгенерирует.
-  // Без звука и перекэширования, поэтому прямой set, не markDone.
+  // Cache: a digest for this url is already built and sits in local storage — do not run
+  // the pipeline or burn LLM credit again; return the ready markdown immediately. Checked
+  // here, AFTER the queue branch: if the active stream is busy with another url, the global
+  // state is single — switching it to "done" over a live stream would race with delta.
+  // In the queue the url waits for a free slot and returns here with no active stream.
+  // Cache reset — deleting the digest in the dashboard (deleteDigest): it will regenerate.
+  // No sound and no re-caching, hence a direct set, not markDone.
   const cached = await getDigest(hashUrl(url));
   if (cached && cached.markdown.trim()) {
     set({
@@ -209,24 +209,24 @@ export async function startStream(url: string, since?: number): Promise<void> {
   await runStream(url, since);
 }
 
-// Продвинуть очередь: взять следующий url и запустить. Один вызов — один запуск;
-// вызывается в finally runStream (done/error/abort активного освободили слот).
-// Пробрасываем startedAt постановки: таймер конспекта считает общее время с ожиданием.
+// Advance the queue: take the next url and start it. One call — one start;
+// invoked in runStream's finally (done/error/abort of the active one freed the slot).
+// The enqueue startedAt is passed through: the digest timer counts total time including the wait.
 function advanceQueue(): void {
   const next = queue.shift();
   if (next) void startStream(next.url, next.startedAt);
 }
 
-// Убрать url из очереди ожидающих (активный стрим не трогаем — его останавливают
-// через stopStream). Кабинет показывает очередь и даёт удалить лишний url.
+// Remove a url from the waiting queue (the active stream is untouched — it is stopped
+// via stopStream). The dashboard shows the queue and allows removing an extra url.
 export function removeFromQueue(url: string): void {
   const i = queue.findIndex((q) => q.url === url);
   if (i < 0) return;
   queue.splice(i, 1);
-  set({}); // обновить снимок очереди + broadcast
+  set({}); // refresh the queue snapshot + broadcast
 }
 
-// Переставить url в очереди (drag-and-drop в кабинете): fromIndex → toIndex.
+// Reorder a url in the queue (drag-and-drop in the dashboard): fromIndex → toIndex.
 export function reorderQueue(fromIndex: number, toIndex: number): void {
   if (fromIndex < 0 || fromIndex >= queue.length) return;
   if (toIndex < 0 || toIndex >= queue.length) return;
@@ -236,11 +236,11 @@ export function reorderQueue(fromIndex: number, toIndex: number): void {
   set({});
 }
 
-// Кэш конспектов чистят в кабинете (deleteDigest/clearDigests в background.ts). Если
-// удалённый url был в терминальном done, сбрасываем state в idle — иначе повторный
-// startStream(url) упрётся в guard «url тот же и стрим жив» и молча не перезапустит
-// генерацию (кэш уже пуст, пользователь видит старый done без текста). Активный
-// loading/streaming не трогаем: стрим доиграет и перекэширует сам.
+// The digest cache is cleared in the dashboard (deleteDigest/clearDigests in background.ts). If
+// the deleted url was in terminal done, reset the state to idle — otherwise a repeat
+// startStream(url) hits the "same url and stream live" guard and silently does not restart
+// generation (the cache is empty, the user sees a stale done with no text). Active
+  // loading/streaming is untouched: the stream finishes and re-caches on its own.
 export function invalidateDone(urlHash: string): void {
   if (!state.url || state.status !== "done") return;
   if (hashUrl(state.url) === urlHash) set({ ...IDLE });
@@ -250,13 +250,13 @@ export function invalidateAllDone(): void {
 }
 
 async function runStream(url: string, since?: number): Promise<void> {
-  if (ctrl) try { ctrl.abort(); } catch { /* уже абортирован */ }
+  if (ctrl) try { ctrl.abort(); } catch { /* already aborted */ }
   ctrl = new AbortController();
-  // Локальная копия контроллера: фикс гонки, когда stopStream/смена url переставляют
-  // module-level ctrl, а старый catch писал ошибку поверх нового loading-состояния.
+  // Local copy of the controller: fixes a race where stopStream/url change reassigns
+  // the module-level ctrl while the old catch wrote an error over the new loading state.
   const myCtrl = ctrl;
-  // startedAt — от постановки в очередь (since), не от старта генерации: ролик, час
-  // ждавший в очереди, не должен «обнулять» таймер. Прямой старт — момент клика.
+  // startedAt — from the enqueue (since), not from the generation start: a video that waited
+  // an hour in the queue must not "zero out" the timer. Direct start — the click moment.
   set({ ...IDLE, status: "loading", url, startedAt: since ?? Date.now() });
 
   const st = await loadSettings();
@@ -269,19 +269,19 @@ async function runStream(url: string, since?: number): Promise<void> {
 
   let accText = "";
   let phase: 0 | 1 | 2 = 0;
-  // Keepalive: браузер выгружает MV3-сервис-воркер, если тот idle дольше ~30с. Между
-  // meta и первым delta большой транскрипт держит LLM в «думании» десятки секунд —
-  // активный SSE-fetch не всегда сбрасывает idle-таймер, SW умирает, порт панели рвётся
-  // и панель показывает «Соединение прервалось», хотя бэкенд продолжает генерить.
-  // Тривиальный вызов chrome.runtime раз в 20с сбрасывает таймер и держит SW живым.
+  // Keepalive: the browser evicts an MV3 service worker idle for more than ~30s. Between
+  // meta and the first delta a large transcript keeps the LLM "thinking" for tens of seconds —
+  // an active SSE-fetch does not always reset the idle timer, the SW dies, the panel port breaks
+  // and the panel shows "Connection lost" although the backend keeps generating.
+  // A trivial chrome.runtime call every 20s resets the timer and keeps the SW alive.
   const keepalive = setInterval(() => {
-    // Документированный keepalive (Chrome 114+): ОТПРАВКА сообщения по long-lived-порту
-    // сбрасывает idle-таймер SW. «ping» панель игнорирует (не state), но сам факт отправки
-    // держит воркер живым во время долгого «думания» LLM. getPlatformInfo — вторая линия.
+    // Documented keepalive (Chrome 114+): SENDING a message over a long-lived port
+    // resets the SW idle timer. The panel ignores "ping" (not a state), but the very fact of sending
+    // keeps the worker alive during a long LLM "thinking" phase. getPlatformInfo — second line of defense.
     void chrome.runtime.getPlatformInfo().catch(() => {});
     for (const p of subs) safePost(p, { type: "ping" });
-    // Диагностика: /ping каждые 20с. По прерыванию этих строк в логе бэкенда видно,
-    // жил ли SW и на какой секунде замолчал.
+    // Diagnostics: /ping every 20s. Breaks in these backend-log lines show whether
+    // the SW lived and at which second it went silent.
     void fetch(baseUrl.replace(/\/$/, "") + "/ping").catch(() => {});
   }, 20000);
   try {
@@ -305,8 +305,8 @@ async function runStream(url: string, since?: number): Promise<void> {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      // CRLF→LF: прокси/гейтвей переупаковывает фреймы с \r\n, и разделитель "\n\n"
-      // не совпадает — копится без разбора.
+        // CRLF→LF: proxies/gateways re-pack frames with \r\n, and the "\n\n"
+        // separator stops matching — data piles up unparsed.
       buf += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
       let sep: number;
       while ((sep = buf.indexOf("\n\n")) >= 0) {
@@ -323,7 +323,7 @@ async function runStream(url: string, since?: number): Promise<void> {
             phase,
           });
         } else if (evt.type === "progress") {
-          // Чанкинг: map-фаза идёт до первого delta merge. Показываем «часть i/N».
+          // Chunking: the map phase runs before the first merge delta. Show "part i/N".
           set({ progress: { i: Number(evt.i) || 0, n: Number(evt.n) || 0 } });
         } else if (evt.type === "delta") {
           accText += (evt.delta as string) ?? "";
@@ -333,9 +333,9 @@ async function runStream(url: string, since?: number): Promise<void> {
           markDone(url, accText);
           return;
         } else if (evt.type === "error") {
-          // #3: бэкенд иногда шлёт error в самом конце, когда текст уже весь пришёл
-          // («доходит до конца и слетает»). Если накопилось — показываем готовый
-          // конспект, маскируя серверный сбой финализации.
+          // #3: the backend sometimes sends error at the very end when all text has arrived
+          // ("reaches the end and crashes"). If anything accumulated, show the finished
+          // digest, masking the server's finalization failure.
           const reason = (evt.reason as string | undefined) ?? "exception";
           if (accText.trim()) markDone(url, accText);
           else set({ status: "error", errorReason: reason, error: REASON_TEXT[reason] ?? REASON_TEXT.exception });
@@ -343,12 +343,12 @@ async function runStream(url: string, since?: number): Promise<void> {
         }
       }
     }
-    // Поток закрылся без явного done/error (сеть/гейтвей оборвал без [DONE]).
+    // Stream closed without an explicit done/error (network/gateway cut without [DONE]).
     if (accText.trim()) markDone(url, accText);
     else set({ status: "error", errorReason: "stream_closed", error: REASON_TEXT.stream_closed });
   } catch (e) {
-    // Штатная остановка (stopStream/смена url) — abort, молча. myCtrl, не ctrl:
-    // module-level ctrl мог уже указывать на контроллер следующего стрима.
+    // Regular stop (stopStream/url change) — abort, silently. myCtrl, not ctrl:
+    // the module-level ctrl may already point at the next stream's controller.
     if (myCtrl.signal.aborted) return;
     set({ status: "error", errorReason: "exception", error: REASON_TEXT.exception });
   } finally {
@@ -357,24 +357,24 @@ async function runStream(url: string, since?: number): Promise<void> {
   }
 }
 
-// Явная остановка пользователем. Кредит списан бэкендом при старте запроса —
-// накопленный текст засчитываем как готовый (как panelStore.stopStream раньше).
-// Очередь не трогаем: abort активного разбудит advanceQueue в finally runStream,
-// следующий url стартует сам.
+// Explicit user stop. The credit was charged by the backend at request start —
+// the accumulated text counts as finished (as panelStore.stopStream did before).
+// The queue is untouched: aborting the active one wakes advanceQueue in runStream's finally,
+// the next url starts by itself.
 export function stopStream(): void {
-  if (ctrl) { try { ctrl.abort(); } catch { /* уже */ } ctrl = null; }
+  if (ctrl) { try { ctrl.abort(); } catch { /* already */ } ctrl = null; }
   if (state.status === "loading" || state.status === "streaming") {
     if (state.text.trim()) { set({ status: "done" }); void cacheDigest(state.url, state.text); }
     else {
-      // Без текста — показываем «Прервано» в панели/попапе, затем автосброс в idle
-      // (панель закрывается сама). startedAt сохраняем, чтобы таймер досчитал до конца.
+      // No text — show "Interrupted" in the panel/popup, then auto-reset to idle
+      // (the panel closes itself). startedAt is kept so the timer counts out to the end.
       set({ status: "cancelled" });
       setTimeout(() => { if (state.status === "cancelled") set({ ...IDLE }); }, 2000);
     }
   }
 }
 
-// Одно SSE-событие (несколько data:-строк склеиваются) → { type: event, ...data }.
+// One SSE event (several data: lines are joined) → { type: event, ...data }.
 function parseSSE(raw: string): { type: string; [k: string]: unknown } | null {
   let event = "message";
   const dataLines: string[] = [];

@@ -1,4 +1,4 @@
-// Сборка конспекта целиком: probe + субтитры + чистка + LLM + результат (или SSE-стрим).
+// Full digest assembly: probe + captions + cleaning + LLM + result (or an SSE stream).
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -18,9 +18,9 @@ export type DigestOutcome =
   | { ok: true; meta: { title: string; channel: string; durationSec: number; lang: string; source: string }; conspectus: string; tokensIn: number; tokensOut: number }
   | { ok: false; reason: "invalid_url" | "too_long" | "no_captions" | "unavailable" | "empty_transcript" | "conspectus_failed" | "no_content" };
 
-// В стриме no_content приходит не до, а во время генерации: LLM отдаёт маркер
-// ERROR: no-content первым сообщением. Поэтому stream-генератор может отдать либо
-// delta (текст), либо { reason: "no_content" } — api.ts транслирует в SSE error.
+// In the stream, no_content arrives not before but during generation: the LLM returns the
+// ERROR: no-content marker as its first message. So the stream generator may yield either
+// a delta (text) or { reason: "no_content" } — api.ts translates it into an SSE error.
 export type StreamChunk =
   | { delta?: string }
   | { reason: "no_content" }
@@ -31,15 +31,15 @@ export type DigestStreamOutcome =
   | { ok: true; meta: { title: string; channel: string; durationSec: number; lang: string; source: string }; stream: AsyncGenerator<StreamChunk> }
   | { ok: false; reason: "invalid_url" | "too_long" | "no_captions" | "unavailable" | "empty_transcript" };
 
-// Порог чанкинга (символов транскрипта) и размер куска. 50k ≈ 12-13k токенов — безопасно
-// для контекста большинства моделей; выше — риск выхода за input-лимит. Размер куска 20k
-// держит один map-вызов в рамках контекста с запасом на промпт и ответ.
+// Chunking threshold (transcript chars) and chunk size. 50k ≈ 12-13k tokens — safe for
+// the context of most models; above that, the risk of exceeding the input limit. The 20k
+// chunk size keeps one map call within context with headroom for the prompt and the reply.
 const CHUNK_THRESHOLD_CHARS = 50000;
 const CHUNK_SIZE_CHARS = 20000;
 
-// Режем транскрипт на куски по границам таймкодов [MM:SS]. Граница — строка, начинающаяся
-// с «[». Накопив >= chunkChars, закрываем кусок на ближайшем маркере, чтобы таймкод в
-// заголовке секции ссылался на реальную строку транскрипта, а не на середину фразы.
+// Cut the transcript into chunks at timecode boundaries [MM:SS]. A boundary is a line starting
+// with "[". Once >= chunkChars is accumulated, we close the chunk at the nearest marker, so the
+// timecode in a section heading points at a real transcript line, not the middle of a phrase.
 function splitTranscript(transcript: string, chunkChars = CHUNK_SIZE_CHARS): string[] {
   const lines = transcript.split("\n");
   const chunks: string[] = [];
@@ -102,8 +102,8 @@ export function createOrchestrator(deps: Deps) {
         )); }
         catch { console.error("[digest] conspectus failed"); return { ok: false, reason: "conspectus_failed" }; }
 
-        // Нет содержательной речи (музыка/тишина/шум) — LLM отдаёт маркер. Не конспект,
-        // не кэшируем; списание вернётся refund в api.ts.
+        // No meaningful speech (music/silence/noise) — the LLM returns the marker. Not a digest,
+        // not cached; the charge is refunded in api.ts.
         if (text.trim() === "ERROR: no-content") return { ok: false, reason: "no_content" };
 
         return {
@@ -116,10 +116,10 @@ export function createOrchestrator(deps: Deps) {
       }
     },
 
-    // Стриминговый вариант: probe+transcript выполняются синхронно и возвращают результат,
-    // а генерация конспекта идёт потоком. tmp-каталог чистится сразу — llm работает со
-    // строкой транскрипта в памяти, файлы больше не нужны.
-    // signal передаётся в LLM-стрим — отмена клиента обрывает генерацию (без сжигания токенов).
+    // Streaming variant: probe+transcript run synchronously and return the result,
+    // while digest generation streams. The tmp dir is cleaned up immediately — the LLM works
+    // with the transcript string in memory; the files are no longer needed.
+    // signal is passed into the LLM stream — a client abort breaks generation (without burning tokens).
     async digestStream(url: string, signal?: AbortSignal): Promise<DigestStreamOutcome> {
       if (!validateYouTubeUrl(url)) return { ok: false, reason: "invalid_url" };
 
@@ -155,7 +155,7 @@ export function createOrchestrator(deps: Deps) {
 
       const meta = { title: probe.title, channel: probe.channel, durationSec: probe.durationSec, lang: probe.langCode, source: url };
 
-      // Короткий транскрипт — прежний путь: один LLM-вызов, живой стрим.
+      // Short transcript — the old path: one LLM call, live stream.
       if (transcript.length <= CHUNK_THRESHOLD_CHARS) {
         const raw = deps.llm.conspectusStream(
           { title: probe.title, channel: probe.channel, durationSec: probe.durationSec, source: url, lang: probe.langCode },
@@ -165,9 +165,9 @@ export function createOrchestrator(deps: Deps) {
         return { ok: true, meta, stream: noContentGuard(raw) };
       }
 
-      // Длинный транскрипт — map-reduce: каждый кусок в секции (молча), затем merge-сборка
-      // стримится. Прогресс «часть i/N» идёт отдельными чанками до первого delta merge.
-      // Токены map-фазы (sectionize) прибавляем к расходу merge — иначе done занижает счёт.
+      // Long transcript — map-reduce: each chunk into sections (silently), then the merge assembly
+      // streams. "Part i/N" progress goes as separate chunks before the first merge delta.
+      // Map-phase (sectionize) tokens are added to the merge spend — otherwise done undercounts.
       const chunks = splitTranscript(transcript);
       async function* chunked(): AsyncGenerator<StreamChunk> {
         const sections: string[] = [];
@@ -199,10 +199,10 @@ export function createOrchestrator(deps: Deps) {
   };
 }
 
-// Маркер «нет речи» LLM отдаёт первым сообщением без преамбулы. Буферизуем начало
-// генерации: пока не превысит длину маркера и не содержит переноса — не стримим.
-// Если накопленное ровно "ERROR: no-content" — отдаём { reason: "no_content" } и
-// заканчиваем; иначе сбрасываем буфер одной delta и пропускаем остаток как обычно.
+// The LLM returns the "no speech" marker as its first message without preamble. We buffer the
+// start of generation: while it does not exceed the marker length and contains no newline, we do not stream.
+// If the accumulated text is exactly "ERROR: no-content" — we yield { reason: "no_content" } and
+// finish; otherwise we flush the buffer as one delta and pass the rest through as usual.
 async function* noContentGuard(stream: AsyncGenerator<{ delta?: string; usage?: { tokensIn: number; tokensOut: number } }>): AsyncGenerator<StreamChunk> {
   const MARKER = "ERROR: no-content";
   let primer = "";
@@ -213,14 +213,14 @@ async function* noContentGuard(stream: AsyncGenerator<{ delta?: string; usage?: 
     if (primed) { yield { delta: chunk.delta }; continue; }
     primer += chunk.delta;
     if (primer.trim() === MARKER) { yield { reason: "no_content" }; return; }
-    // Реальный конспект длиннее и содержит перенос — сбрасываем буфер и стримим дальше.
+    // A real digest is longer and contains a newline — flush the buffer and keep streaming.
     if (primer.length > MARKER.length + 8 || /\n/.test(primer)) {
       primed = true;
       yield { delta: primer };
       primer = "";
     }
   }
-  // Короткий ответ (<маркер), не маркер — отдаём как есть (аномалия, но не no_content).
+  // A short reply (< marker), not the marker — yield as is (an anomaly, but not no_content).
   if (!primed && primer.trim() && primer.trim() !== MARKER) yield { delta: primer };
 }
 

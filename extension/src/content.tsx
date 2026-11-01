@@ -1,8 +1,8 @@
-// Content script на youtube.com. Инжектит кнопку-«Конспект» на watch-страницах
-// (круглая тёмная кнопка #0f0f0f с хром-монограммой-C в строке действий под плеером, в свой
-// Shadow DOM) и плавающую панель-оверлей (тоже Shadow DOM). По клику открывается
-// порт к background и стримится конспект — React-панель подписана на внешний стор
-// и обновляется live.
+// Content script on youtube.com. Injects a "Conspect" button on watch pages
+// (a round dark #0f0f0f button with a chrome-C monogram in the action row under the player, in its own
+// Shadow DOM) and a floating overlay panel (also Shadow DOM). On click, a port to the
+// background opens and the digest streams in — the React panel subscribes to an external store
+// and updates live.
 import { mountShadow } from "./panel/shadowApp";
 import { TriggerButton } from "./panel/TriggerButton";
 import { FeedButton } from "./panel/FeedButton";
@@ -19,11 +19,11 @@ function isWatch(): boolean {
   return location.pathname === "/watch";
 }
 
-// После обновления/переустановки расширения открытые YouTube-вкладки держат
-// осиротевший content script: chrome.runtime.id становится undefined, а connect/
-// sendMessage синхронно бросают «Extension context invalidated». Гuard перед любым
-// chrome.runtime-вызовом; при orphaning останавливаем обсервер, чтобы не молотить
-// исключениями на каждой мутации.
+// After the extension updates/reinstalls, open YouTube tabs keep an orphaned
+// content script: chrome.runtime.id becomes undefined and connect/sendMessage
+// throw "Extension context invalidated" synchronously. Guard before any
+// chrome.runtime call; on orphaning we stop the observer so it does not spam
+// exceptions on every mutation.
 function isExtensionContextValid(): boolean {
   try {
     return !!chrome.runtime?.id;
@@ -32,10 +32,10 @@ function isExtensionContextValid(): boolean {
   }
 }
 
-// Оверлей-хост для панели: фиксированный, на весь viewport, прозрачен для кликов
-// (pointer-events:none) — сама карточка включает клики у себя. Один на страницу.
-// Крепим к documentElement, не к body: YouTube SPA при навигации меняет детей body,
-// и прямой дочерний host мог бы быть снесён вместе с ними.
+// Overlay host for the panel: fixed, covers the whole viewport, click-transparent
+// (pointer-events:none) — the card itself re-enables clicks. One per page.
+// We attach it to documentElement, not body: the YouTube SPA replaces body's children
+// during navigation, and a direct child host could be torn down with them.
 function ensurePanelHost(): void {
   if (document.getElementById(PANEL_HOST_ID)) return;
   const host = document.createElement("div");
@@ -46,12 +46,12 @@ function ensurePanelHost(): void {
   mountShadow(host, <ConspectPanel />);
 }
 
-// Реальная точка крепления: #subscribe-button внутри стабильного #owner (живая
-// метадата ytd-watch-metadata / #above-the-fold). Держимся за #owner, а не за самим
-// #subscribe-button — тот встречается и в #meta-skeleton (заглушка-скелет), который YT
-// прячет ([hidden]) после загрузки метадаты. Кнопка, привязанная к скелету, уходила в
-// display:none и оставалась невидимой (offsetParent=null), а ранний return по «host уже
-// есть» не давал её перепривязать. В #owner такого нет.
+// The real anchor point: #subscribe-button inside the stable #owner (live metadata
+// of ytd-watch-metadata / #above-the-fold). We hold on to #owner, not to
+// #subscribe-button itself — the latter also appears in #meta-skeleton (a skeleton
+// placeholder) that YT hides ([hidden]) once metadata loads. A button bound to the
+// skeleton went display:none and stayed invisible (offsetParent=null), and the early
+// return on "host already exists" prevented rebinding it. #owner has no such issue.
 function ownerSubscribeButton(): HTMLElement | null {
   const owner = document.querySelector<HTMLElement>("#owner");
   if (!owner) return null;
@@ -65,11 +65,11 @@ let triggerRoot: Root | null = null;
 function injectTrigger(): void {
   if (!isWatch()) return;
   const existing = document.getElementById(TRIGGER_HOST_ID) as HTMLElement | null;
-  // Хост на месте, внутри #owner и виден — ок. offsetParent===null ловит и спрятанного
-  // предком (скелет/hidden), и display:none — в обоих случаях перепривязываем.
+  // Host in place, inside #owner and visible — ok. offsetParent===null catches both a node
+  // hidden by an ancestor (skeleton/hidden) and display:none — we rebind in both cases.
   if (existing && existing.closest("#owner") && existing.offsetParent !== null) return;
-  // Осиротевший/спрятанный хост (YT перерисовал мету) — убираем вместе с React-корнем:
-  // иначе при каждой перепривязке накапливался unmount'нутый root (утечка).
+  // Orphaned/hidden host (YT repainted the meta) — remove it together with the React root:
+  // otherwise every rebind piled up an unmounted root (leak).
   if (existing) {
     existing.remove();
     if (triggerRoot) {
@@ -78,22 +78,22 @@ function injectTrigger(): void {
     }
   }
   const sub = ownerSubscribeButton();
-  if (!sub || !sub.parentNode) return; // #owner ещё не готов — наблюдатель повторит
+  if (!sub || !sub.parentNode) return; // #owner not ready yet — the observer will retry
   const triggerHost = document.createElement("div");
   triggerHost.id = TRIGGER_HOST_ID;
   triggerHost.style.cssText = "display:inline-flex;align-items:center;margin-left:10px";
-  // Следующий сиблинг #subscribe-button внутри #owner: кнопка встаёт в той же строке,
-  // сразу справа от «Подписаться», а не под ней.
+  // Next sibling of #subscribe-button inside #owner: the button lands on the same row,
+  // right of "Subscribe", not below it.
   sub.parentNode.insertBefore(triggerHost, sub.nextSibling);
   triggerRoot = mountShadow(triggerHost, <TriggerButton />).root;
   ensurePanelHost();
   syncTriggerVisibility();
 }
 
-// YouTube при скролле сворачивает метадату и в ряде режимов делает её position:sticky/
-// fixed (ytd-watch-metadata / #above-the-fold). Кнопка-сиблинг #subscribe-button наследует
-// это и «уезжает» поверх контента, хотя должна уйти вместе с блоком. Прячем кнопку, пока
-// она в sticky/fixed-предке. Обычный скролл (блок ушёл из viewport) уносит её сам.
+// On scroll YouTube collapses the metadata and in some modes makes it position:sticky/
+// fixed (ytd-watch-metadata / #above-the-fold). The #subscribe-button sibling inherits
+// that and "floats away" over the content, though it should leave with the block. We hide
+// the button while it sits inside a sticky/fixed ancestor. Normal scrolling (block out of the viewport) takes it away on its own.
 function triggerIsStuck(host: HTMLElement): boolean {
   let el: HTMLElement | null = host;
   while (el && el !== document.documentElement) {
@@ -119,14 +119,14 @@ function scheduleSyncTriggerVisibility(): void {
 
 const FEED_HOST_ID = "conspect-feed-host";
 
-// Щит клика по feed-кнопке: window-CAPTURE-слушатель перехватывает событие раньше
-// любых делегатов YouTube (даже раньше document-capture) и гасит его, а действие
-// (openPanel) выполняет сам. Обычный bubble-suppress на кнопке надёжен не всегда:
-// в части роллаутов YouTube карточка перекрывает кнопку hover-оверлеем (событие
-// вообще не доходит до кнопки) или слушает событие в capture-фазе раньше нас.
-// composedPath() виден сквозь открытый Shadow DOM; url лежит в data-cs-url хоста.
-// preventDefault не ставим на pointerdown: по спецификации Pointer Events он
-// подавляет совместимые mouse-события; click нужен щиту для экшена.
+// Click shield for the feed button: a window-level CAPTURE listener intercepts the event
+// before any YouTube delegates (even before document-capture) and swallows it, performing
+// the action (openPanel) itself. A plain bubble-suppress on the button is not always
+// reliable: in some rollouts YouTube covers the button with a hover overlay (the event
+// never reaches the button) or listens in the capture phase earlier than us.
+// composedPath() sees through the open Shadow DOM; the url sits in the host's data-cs-url.
+// We do not preventDefault on pointerdown: per the Pointer Events spec it
+// suppresses compatible mouse events; the shield needs click for its action.
 function feedShield(e: Event): void {
   const path = e.composedPath();
   for (const node of path) {
@@ -142,9 +142,9 @@ for (const t of ["pointerdown", "mousedown", "click", "auxclick"]) {
   window.addEventListener(t, feedShield, true);
 }
 
-// Живые React-корни feed-кнопок. YouTube рециклит/выбрасывает карточки при скролле
-// и SPA-навигации; host уходит из DOM, но Shadow-корень + antd cssinjs-стили +
-// слушатели порта без явного unmount копятся → утечка. Prune убирает осиротевшие.
+// Live React roots of the feed buttons. YouTube recycles/discards cards on scroll
+// and SPA navigation; hosts leave the DOM, but without an explicit unmount the Shadow root
+// + antd cssinjs styles + port listeners pile up → a leak. Prune removes the orphaned ones.
 const feedRoots = new Map<HTMLElement, Root>();
 
 function pruneFeedRoots(): void {
@@ -155,16 +155,16 @@ function pruneFeedRoots(): void {
   }
 }
 
-// Кнопка на карточках ленты/поиска/related/плейлистов («Смотреть позже» = playlist?list=WL)
-// (точка C1): overlay-пилюля на превью,
-// клик запускает конспект того же URL через общую панель. ensurePanelHost — панель
-// нужна и на не-watch страницах (на watch её ставит injectTrigger). Селекторы
-// YouTube плывут — перебираем несколько типов карточек.
+// Button on feed/search/related/playlist cards ("Watch later" = playlist?list=WL)
+// (entry point C1): an overlay pill on the preview;
+// a click starts a digest of the same URL through the shared panel. ensurePanelHost — the panel
+// is needed on non-watch pages too (on watch, injectTrigger installs it). YouTube
+// selectors drift — we iterate over several card types.
 //
-// Батчим инъекцию (rule #6 master skill): на ленте/поиске десятки карточек, а на
-// каждой style.setProperty + createRoot молотят layout. Режем по 20 с yield (rAF)
-// между батчами, чтобы не блокировать main thread. inFlight-флаг сериализует вызовы
-// от коалесцирующего таймера — пока один проход идёт, повторный пропускается.
+// We batch the injection (rule #6 master skill): a feed/search page has dozens of cards, and
+// per-card style.setProperty + createRoot thrash layout. We slice by 20 with a yield (rAF)
+// between batches so the main thread is not blocked. The inFlight flag serializes calls
+// from the coalescing timer — while one pass runs, the next is skipped.
 let feedInFlight = false;
 async function injectFeedButtons(): Promise<void> {
   if (feedInFlight) return;
@@ -191,10 +191,10 @@ async function injectFeedButtons(): Promise<void> {
   }
 }
 
-// Thumbnail-контейнер карточки — куда вешаем кнопку-пилюлю (чтобы она была на превью,
-// а не на краю строки). Старая вёрстка: ytd-thumbnail (rich/video/compact/grid). Новая
-// (view-model в related-колонке справа): yt-thumbnail-view-model. Фолбэки — якорь
-// a#thumbnail / a[href*=watch]. Не нашли — сама карточка.
+// The card's thumbnail container — where the pill button goes (so it sits on the preview,
+// not at the row's edge). Old layout: ytd-thumbnail (rich/video/compact/grid). New one
+// (view-model in the related column on the right): yt-thumbnail-view-model. Fallbacks — the
+// a#thumbnail / a[href*=watch] anchor. Nothing found — the card itself.
 function thumbAnchor(card: HTMLElement): HTMLElement {
   return (
     card.querySelector<HTMLElement>("ytd-thumbnail") ??
@@ -205,9 +205,9 @@ function thumbAnchor(card: HTMLElement): HTMLElement {
   );
 }
 
-// Ближайший предок, реально служащий containing block'ом для position:absolute-потомка:
-// генерирует box (не display:contents) и position != static. Нет такого — documentElement
-// (initial containing block). Нужен фолбэк-пути injectFeedCard, где кнопка на карточке.
+// The nearest ancestor that actually serves as the containing block for a position:absolute descendant:
+// it generates a box (not display:contents) and position != static. None — documentElement
+// (the initial containing block). Needed for the fallback path in injectFeedCard, where the button sits on the card.
 function containingBlock(el: HTMLElement): HTMLElement {
   for (let e: HTMLElement | null = el; e; e = e.parentElement) {
     const cs = getComputedStyle(e);
@@ -217,7 +217,7 @@ function containingBlock(el: HTMLElement): HTMLElement {
   return document.documentElement;
 }
 
-// Одна карточка ленты/поиска/related: overlay-пилюля на превью.
+// A single feed/search/related card: an overlay pill on the preview.
 function injectFeedCard(card: HTMLElement): void {
   const link = card.querySelector<HTMLAnchorElement>(
     'a#thumbnail[href*="/watch"], a[href*="/watch"]'
@@ -226,9 +226,9 @@ function injectFeedCard(card: HTMLElement): void {
   const url = link.href;
   if (!/[?&]v=/.test(url)) return;
   const existing = card.querySelector<HTMLElement>("#" + FEED_HOST_ID);
-  // YouTube рециклит compact/rich-карточки при скролле: один DOM-узел получает
-  // новый a[href]. По data-cs-url ловим рассинхрон — перепривязываем кнопку на
-  // свежий URL, иначе она навсегда остаётся на превью первого ролика карточки.
+  // YouTube recycles compact/rich cards on scroll: one DOM node gets a
+  // new a[href]. We detect the desync via data-cs-url — rebind the button to the
+  // fresh URL, otherwise it stays forever on the card's first video preview.
   if (existing && existing.dataset.csUrl === url) return;
   if (existing) {
     const root = feedRoots.get(existing);
@@ -236,14 +236,14 @@ function injectFeedCard(card: HTMLElement): void {
     feedRoots.delete(existing);
     existing.remove();
   }
-  // Кнопку крепим к обёртке превью (ytd-thumbnail), а не к карточке: обёртка —
-  // реальный box, relative + left/top 8px держат кнопку в левом-верхнем углу превью.
-  // Новая вёрстка главной (yt-lockup-view-model) развернула дерево: yt-thumbnail-view-model
-  // лежит ВНУТРИ <a href="/watch">, и посадка кнопки в «обёртку» снова оказывалась
-  // посадкой в ссылку — клик уходил в навигацию на видео. closest("a") ловит оба случая
-  // посадки на/в ссылку (включая старый якорь a#thumbnail): тогда host крепим к РОДИТЕЛЮ
-  // ссылки, а офсет считаем от rect ссылки — родитель-холдер шире самой ссылки, простые
-  // 8px ставили бы кнопку мимо превью.
+  // We attach the button to the preview wrapper (ytd-thumbnail), not to the card: the wrapper is
+  // a real box, relative + left/top 8px keep the button in the preview's top-left corner.
+  // The new home layout (yt-lockup-view-model) flipped the tree: yt-thumbnail-view-model
+  // sits INSIDE <a href="/watch">, and planting the button into the "wrapper" again turned out
+  // to be planting it into the link — the click went to video navigation. closest("a") catches
+  // both on-link and in-link planting (including the old a#thumbnail anchor): then we attach
+  // the host to the link's PARENT and compute the offset from the link's rect — the parent
+  // holder is wider than the link itself, and plain 8px would put the button off the preview.
   const anchor = thumbAnchor(card);
   const insideA = anchor.closest("a");
   const useThumb = anchor !== card && anchor.tagName !== "A" && !insideA;
@@ -258,11 +258,11 @@ function injectFeedCard(card: HTMLElement): void {
     if (getComputedStyle(hostParent).position === "static") {
       hostParent.style.setProperty("position", "relative", "important");
     }
-    // Офсет от containing block'а hostParent: он может быть display:contents
-    // (контейнеры новой вёрстки) и не принять relative — тогда блоком служит
-    // ближайший box выше по дереву. Считаем от hostParent, а не от host:
-    // host ещё не в дереве (appendChild ниже), его предки пусты, и containingBlock
-    // вернул бы documentElement — кнопка съезжала на главной.
+    // Offset from hostParent's containing block: hostParent may be display:contents
+    // (containers of the new layout) and not accept relative — then the block is
+    // the nearest box up the tree. We measure from hostParent, not from host:
+    // host is not in the tree yet (appendChild below), its ancestors are empty, and
+    // containingBlock would return documentElement — the button slid off on the home page.
     const cb = containingBlock(hostParent);
     const cbRect = cb.getBoundingClientRect();
     const thumbRect = (insideA ?? anchor).getBoundingClientRect();
@@ -274,17 +274,17 @@ function injectFeedCard(card: HTMLElement): void {
   if (getComputedStyle(hostParent).position === "static") {
     hostParent.style.setProperty("position", "relative", "important");
   }
-  // Скоуп stacking context на родителе, иначе z-index кнопки уходит на уровень страницы
-  // и она рисуется поверх fixed-шапки YouTube (masthead z-index 2020) при скролле.
+  // Scope the stacking context on the parent, otherwise the button's z-index escapes to the page level
+  // and it draws over YouTube's fixed header (masthead z-index 2020) on scroll.
   hostParent.style.setProperty("isolation", "isolate", "important");
   hostParent.appendChild(host);
   const { root } = mountShadow(host, <FeedButton url={url} />);
   feedRoots.set(host, root);
 }
 
-// ?cs-auto=1 на watch-странице — авто-открыть панель и запустить конспект. Ставится
-// попапом при запуске по вставленной ссылке (вне YouTube): открываем watch с этим
-// флагом, content auto-стартует. Один раз на загрузку.
+// ?cs-auto=1 on a watch page — auto-open the panel and start the digest. The popup sets it
+// when starting from a pasted link (outside YouTube): we open the watch page with this
+// flag and the content script auto-starts. Once per load.
 let autoApplied = false;
 function readAuto(): void {
   if (autoApplied) return;
@@ -295,9 +295,9 @@ function readAuto(): void {
   openPanel(location.href);
 }
 
-// Попап шлёт {type:"cs-open-panel"} с активной watch-вкладки (CTA «Сделать конспект»).
-// Открываем панель на текущем видео. URL берём из location вкладки — попап уже
-// отфильтровал, что активная вкладка это /watch?v=.
+// The popup sends {type:"cs-open-panel"} from the active watch tab (the "Make digest" CTA).
+// We open the panel on the current video. The URL comes from the tab's location — the popup
+// already verified that the active tab is a /watch?v= page.
 chrome.runtime.onMessage.addListener((msg: unknown) => {
   if (!isExtensionContextValid()) return;
   if (msg && typeof msg === "object" && (msg as { type?: string }).type === "cs-open-panel" && isWatch()) {
@@ -306,10 +306,10 @@ chrome.runtime.onMessage.addListener((msg: unknown) => {
   }
 });
 
-// (Пере)инжект при SPA-навигации + пока кнопка не встанет (DOM может догружаться).
+// (Re)inject on SPA navigation + until the button lands (the DOM may still be loading).
 function arm(): void {
-  // Orphaning после обновления расширения: дальше каждый chrome.runtime-вызов бросает.
-  // Останавливаем обсервер, чтобы не молотить arm() на каждой мутации осиротевшей вкладки.
+  // Orphaning after an extension update: every further chrome.runtime call throws.
+  // We stop the observer so arm() does not fire on every mutation of the orphaned tab.
   if (!isExtensionContextValid()) {
     obs.disconnect();
     return;
@@ -319,21 +319,21 @@ function arm(): void {
   void injectFeedButtons();
   readAuto();
 }
-// Панель, открытая из ленты (точка C1), живёт в position:fixed-оверлее и не
-// привязана к странице. При уходе на watch ДРУГОГО ролика — закрываем, чтобы
-// чужой конспект не висел над новым видео. Тот же ролик (лента → его watch) —
-// оставляем. Переход на не-watch (лента/поиск/главная) — панель оставляем:
-// иначе автозакрытие рубило бы панель, открытую прямо в ленте (yt-navigate-finish
-// иногда диспаттится без смены ролика).
+// A panel opened from the feed (entry point C1) lives in a position:fixed overlay and is
+// not tied to the page. When navigating to ANOTHER video's watch page, we close it so a
+// foreign digest does not hang over the new video. Same video (feed → its watch page) —
+// keep it. Navigation to a non-watch page (feed/search/home) — keep the panel too:
+// otherwise auto-close would kill a panel opened right in the feed (yt-navigate-finish
+// sometimes fires without a video change).
 function onNavigate(): void {
   const st = getPanelState();
   const curId = /[?&]v=/.test(location.href) ? videoId(location.href) : null;
   if (st.status !== "closed" && curId && curId !== videoId(st.url)) {
     closePanel();
   }
-  // Автооткрытие (#8): вернулись на ролик, для которого недавно открывали конспект, а
-  // панель закрылась навигацией. Стрим в SW доиграл/доигрывает — openPanel вернёт снапшот
-  // (streaming/done). Ограничиваем 10 минутами, чтобы панель не всплывала сама спустя часы.
+  // Auto-reopen (#8): we returned to a video whose digest was opened recently, and the
+  // panel got closed by navigation. The SW stream has finished/is finishing — openPanel returns
+  // a snapshot (streaming/done). Limited to 10 minutes so the panel does not pop up by itself hours later.
   const last = getLastOpen();
   if (st.status === "closed" && last.url && curId && curId === videoId(last.url) && Date.now() - last.at < 10 * 60 * 1000) {
     openPanel(last.url);
@@ -342,14 +342,14 @@ function onNavigate(): void {
 }
 document.addEventListener("yt-navigate-finish", onNavigate);
 window.addEventListener("load", arm);
-// Следим за «прилипанием» кнопки-триггера: если YouTube сделал её предок sticky/fixed
-// (сворачивание метадаты при скролле), прячем кнопку; вернулся обычный поток — показываем.
+// Watch the trigger button "sticking": if YouTube made its ancestor sticky/fixed
+// (metadata collapse on scroll), hide the button; back in normal flow — show it.
 window.addEventListener("scroll", scheduleSyncTriggerVisibility, { passive: true });
 window.addEventListener("resize", scheduleSyncTriggerVisibility);
-// YouTube мутирует DOM сотнями раз в секунду (плеер, тултипы, счётчики лайков).
-// Коалесцируем все инжекты одним таймером 150мс — иначе querySelectorAll по карточкам
-// и offsetParent-проверка триггера молотят layout на каждом муте. arm() сам коротит:
-// триггер сразу выходит, когда уже стоит правильно; feed — когда хосты на всех карточках.
+// YouTube mutates the DOM hundreds of times per second (player, tooltips, like counters).
+// We coalesce all injections into one 150ms timer — otherwise querySelectorAll over the cards
+// and the trigger's offsetParent check thrash layout on every mutation. arm() short-circuits:
+// the trigger returns immediately once placed correctly; feed — once hosts exist on all cards.
 let armTimer: ReturnType<typeof setTimeout> | undefined;
 function scheduleArm(): void {
   if (armTimer !== undefined) clearTimeout(armTimer);
@@ -358,10 +358,10 @@ function scheduleArm(): void {
     arm();
   }, 150);
 }
-// E3: YouTube мутирует DOM сотнями раз/сек, но нас интересуют только структурные
-// изменения (добавление/удаление элементов — карточки ленты, появление #owner).
-// Мутации текста (пересчёт счётчиков, тултипы) — childList с текстовыми узлами;
-// фильтруем их, иначе коалесцирующий таймер молотит на каждом обновлении текста.
+// E3: YouTube mutates the DOM hundreds of times per second, but we only care about structural
+// changes (elements added/removed — feed cards, #owner appearing).
+// Text mutations (counter updates, tooltips) are childList with text nodes;
+// we filter them out, otherwise the coalescing timer fires on every text update.
 function onMutate(records: MutationRecord[]): void {
   for (const r of records) {
     if (r.type !== "childList") continue;

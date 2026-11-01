@@ -1,6 +1,6 @@
-// Рендер logos/icons из icons/logo.svg в PNG 16/32/48/128 — для action.default_icon
-// и icons в manifest (MV3 требует raster, SVG не поддерживается). density 384 даёт
-// чёткие края на 16px. Запуск: node scripts/make-icons.mjs (после `npm i -D sharp`).
+// Render logos/icons from icons/logo.svg into 16/32/48/128 PNGs — for action.default_icon
+// and the icons in the manifest (MV3 requires raster; SVG is not supported). density 384 gives
+// sharp edges at 16px. Run: node scripts/make-icons.mjs (after `npm i -D sharp`).
 import sharp from "sharp";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";

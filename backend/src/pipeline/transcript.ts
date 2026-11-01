@@ -1,5 +1,5 @@
-// Чистка SRT → тело транскрипта. Логика портирована 1:1 из clean_transcript.py (Python,
-// только эталон для тестов) в cleanTranscript.ts, чтобы рантайм не зависел от Python.
+// SRT cleaning → the transcript body. Logic ported 1:1 from clean_transcript.py (Python,
+// a reference for tests only) into cleanTranscript.ts, so the runtime does not depend on Python.
 import { readFile } from "node:fs/promises";
 import { cleanTranscript } from "./cleanTranscript.js";
 

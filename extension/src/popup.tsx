@@ -1,8 +1,8 @@
-// Попап по клику на иконку. Три состояния:
-//  • на YouTube (watch) → только «Недавние»; запуск конспекта идёт кнопкой под плеером
-//    (content.tsx), попап — точка статуса и архива, не запуска;
-//  • вне YouTube → вставить ссылку → стрим идёт live прямо в попапе;
-//  • сервер не настроен → карточка-подсказка (config.json не задан).
+// Popup on the toolbar icon click. Three states:
+//  • on YouTube (watch) → only "Recent"; starting a digest is done by the button under the player
+//    (content.tsx); the popup is a status/archive point, not a launcher;
+//  • off YouTube → paste a link → the stream runs live right in the popup;
+//  • server not configured → a hint card (config.json not set).
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { createPortal } from "react-dom";
@@ -52,11 +52,11 @@ function watchUrlOf(t: chrome.tabs.Tab | null): string | null {
   try {
     const u = new URL(t.url);
     if (u.hostname.endsWith("youtube.com") && u.pathname === "/watch" && u.searchParams.get("v")) return t.url;
-  } catch { /* не URL */ }
+  } catch { /* not a URL */ }
   return null;
 }
 
-// Видео-id из youtube-ссылки — для строки очереди без заголовка.
+// Video id from a youtube link — for a queue row without a title.
 function videoIdOf(u: string): string {
   const m = u.match(/(?:v=|youtu\.be\/|shorts\/)([\w-]{6,})/);
   return m?.[1] ?? u;
@@ -71,7 +71,7 @@ export function Popup() {
 
   const { s: stream, start: startStream, stop: stopStreamNow, removeFromQueue, reorderQueue } = useStream();
   const [dismissed, setDismissed] = useState(false);
-  // Подтверждение удаления элемента очереди (попап): клик по ✕ не стирает сразу.
+  // Queue-item removal confirmation (popup): clicking ✕ does not delete immediately.
   const [confirmRemove, setConfirmRemove] = useState<QueueItem | null>(null);
 
   const refresh = useCallback(async (): Promise<void> => {
@@ -86,13 +86,13 @@ export function Popup() {
     try {
       const [t] = await chrome.tabs.query({ active: true, currentWindow: true });
       setTab(t ?? null);
-    } catch { /* нет доступа к вкладке */ }
+    } catch { /* no tab access */ }
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  // Живое обновление «Недавних»: удаление/очистка кэша в кабинете должна отражаться
-  // в попапе без переоткрытия. storage.onChanged по DIGESTS_KEY перечитывает список.
+  // Live update of "Recent": deleting/clearing the cache in the dashboard must be reflected
+  // in the popup without reopening. storage.onChanged on DIGESTS_KEY re-reads the list.
   useEffect(() => {
     const onChange = (changes: Record<string, chrome.storage.StorageChange>, area: string): void => {
       if (area !== "local" || !changes[DIGESTS_KEY]) return;
@@ -102,8 +102,8 @@ export function Popup() {
     return () => chrome.storage.onChanged.removeListener(onChange);
   }, [refresh]);
 
-  // Недавние: клик «читать» — inline-раскрытие мини-превью прямо в попапе. Конспект уже
-  // в кэше (self-host), подтягивать по сети не нужно.
+  // Recent: a "read" click — an inline mini-preview right in the popup. The digest is already
+  // in the cache (self-host); nothing to fetch over the network.
   const [expandedHash, setExpandedHash] = useState<string | null>(null);
   const toggleExpand = (urlHash: string): void => {
     setExpandedHash((cur) => (cur === urlHash ? null : urlHash));
@@ -119,8 +119,8 @@ export function Popup() {
     setConfirmRemove(null);
   };
 
-  // Вне YouTube: распарсить videoId и запустить стрим через глобальный streamStore.
-  // Нормализуем до watch-URL.
+  // Off YouTube: parse the videoId and start the stream via the global streamStore.
+  // Normalize to a watch URL.
   function makeByUrl(): void {
     const m = urlInput.match(/(?:v=|youtu\.be\/|shorts\/)([\w-]{6,})/);
     const id = m?.[1];
@@ -150,8 +150,8 @@ export function Popup() {
 
       <PopHead onGear={openOptions} onRefresh={() => void refresh()} />
 
-      {/* Модалка подтверждения — через портал в body, чтобы fixed-центрирование не
-          зависело от transform-анимации родителя (cs-pop-fade). */}
+      {/* Confirmation modal — via a portal into body, so fixed centering does not
+          depend on the parent's transform animation (cs-pop-fade). */}
       {confirmRemove && createPortal(
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, animation: `cs-pop-fade .18s ${EASE} both` }} onClick={() => setConfirmRemove(null)}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: CELL2, border: `1px solid ${LINE2}`, borderRadius: 12, width: "calc(100% - 32px)", maxWidth: 260, padding: "16px 16px 14px", boxShadow: "0 16px 40px rgba(0,0,0,.6)" }}>
@@ -239,8 +239,8 @@ export function Popup() {
   );
 }
 
-// Стрим в попапе: live-текст пишется прямо в теле по мере поступления, а не только спиннер.
-// При done — TL;DR + тезисы + «Читать полностью» и «Открыть на YouTube». Свернуть → баннер.
+// The stream in the popup: live text is written right in the body as it arrives, not just a spinner.
+// On done — TL;DR + theses + "Read in full" and "Open on YouTube". Collapse → a banner.
 export function StreamView(props: {
   status: "loading" | "streaming" | "done" | "error" | "cancelled";
   text: string;
@@ -352,7 +352,7 @@ export function StreamView(props: {
   );
 }
 
-// Живой превью стрима в попапе: TL;DR + начало тела появляются по мере генерации.
+// Live stream preview in the popup: the TL;DR + the start of the body appear as generation goes.
 function StreamPreview({ text }: { text: string }) {
   const { tldr, body } = splitTldr(text);
   return (
@@ -374,7 +374,7 @@ function StreamPreview({ text }: { text: string }) {
   );
 }
 
-// Компактный индикатор стрима в попапе: генерация идёт/готова, клик — развернуть.
+// Compact stream indicator in the popup: generation running/finished; a click expands.
 export function StreamBanner({ status, title, onExpand }: { status: string; title: string | null; onExpand: () => void }) {
   const done = status === "done";
   const accent = done ? OK : AMBER;
@@ -392,7 +392,7 @@ export function StreamBanner({ status, title, onExpand }: { status: string; titl
   );
 }
 
-// Строка недавнего конспекта + inline-раскрытие мини-превью. Конспект уже в кэше.
+// A recent-digest row + an inline mini-preview. The digest is already in the cache.
 function PopRec(props: { d: Digest; open: boolean; onToggle: () => void; onRead: () => void }) {
   const { d, open, onToggle, onRead } = props;
   return (
@@ -421,7 +421,7 @@ function PopRec(props: { d: Digest; open: boolean; onToggle: () => void; onRead:
   );
 }
 
-// Развёрнутое мини-превью недавнего конспекта: TL;DR + тезисы + «Читать полностью».
+// The expanded mini-preview of a recent digest: TL;DR + theses + "Read in full".
 function PopExpand(props: { markdown: string; onRead: () => void }) {
   const { markdown, onRead } = props;
   const { tldr } = splitTldr(markdown);
@@ -478,13 +478,13 @@ function Divider({ label, mt = 11, mb = 8, mx = 13 }: { label: string; mt?: numb
   );
 }
 
-// Очередь ожидающих видео в попапе: компактные строки с drag-and-drop перестановкой,
-// кнопкой «открыть на YouTube» и удалением (через подтверждение в родителе).
+// The waiting queue in the popup: compact rows with drag-and-drop reordering,
+// an "open on YouTube" button, and removal (via a confirmation in the parent).
 function QueueList({ queue, onRemove, reorderQueue }: { queue: QueueItem[]; onRemove: (item: QueueItem) => void; reorderQueue: (from: number, to: number) => void }) {
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
-  // FLIP: плавный съезд строк при перестановке. Анимируем только при смене порядка id,
-  // не при сдвиге всего блока (см. тот же guard в кабинете).
+  // FLIP: rows glide smoothly on reorder. Animate only when the id order changes,
+  // not when the whole block shifts (see the same guard in the dashboard).
   const pos = useRef<Map<string, number>>(new Map());
   useLayoutEffect(() => {
     const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-qid]"));

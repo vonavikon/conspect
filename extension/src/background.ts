@@ -1,5 +1,5 @@
-// Service worker (MV3). Cross-origin fetch к self-host серверу только тут — content-script
-// fetch блокируется. Content/options/popup общаются с ним через chrome.runtime.sendMessage.
+// Service worker (MV3). Cross-origin fetch to the self-host server happens only here —
+// content-script fetch is blocked. Content/options/popup talk to it via chrome.runtime.sendMessage.
 import { loadSettings, saveSettings, listDigests, getDigest, clearDigests, deleteDigest } from "./lib/store.js";
 import { subscribe, unsubscribe, startStream, stopStream, removeFromQueue, reorderQueue, invalidateDone, invalidateAllDone } from "./streamStore.js";
 
@@ -17,9 +17,9 @@ function normBase(url: string): string {
   return url.trim().replace(/\/+$/, "");
 }
 
-// Первичная настройка подключения: агент кладёт config.json (baseUrl + sharedToken) в
-// dist/ при установке. Расширение читает его при каждом старте service worker и пишет
-// в chrome.storage. Настроек сервера в ЛК нет — подключение задаётся только этим файлом.
+// Initial connection setup: an agent places config.json (baseUrl + sharedToken) into
+// dist/ at install time. The extension reads it on every service worker start and writes
+// it to chrome.storage. There are no server settings in the dashboard — the connection is defined only by this file.
 async function seedFromConfigJson(): Promise<void> {
   try {
     const res = await fetch(chrome.runtime.getURL("config.json"));
@@ -30,12 +30,12 @@ async function seedFromConfigJson(): Promise<void> {
     if (!baseUrl || !sharedToken) return;
     await saveSettings({ baseUrl, sharedToken });
   } catch {
-    // config.json нет или он битый — настройки остаются как есть.
+    // config.json is missing or broken — the settings stay as they are.
   }
 }
 
 chrome.runtime.onMessage.addListener((msg: Msg, sender, send: (r: Reply) => void) => {
-  // Принимаем только сообщения из своего расширения (см. sender.id).
+  // Accept only messages from our own extension (see sender.id).
   if (sender.id !== chrome.runtime.id) return;
   void (async () => {
     try {
@@ -68,8 +68,8 @@ chrome.runtime.onMessage.addListener((msg: Msg, sender, send: (r: Reply) => void
           return;
         }
         case "openRead": {
-          // Контент-скрипт (панель на YouTube) не имеет доступа к chrome.tabs — открытие
-          // читалки read.html в новой вкладке делаем здесь, в SW.
+          // The content script (panel on YouTube) has no access to chrome.tabs — opening
+          // the read.html reader in a new tab is done here, in the SW.
           await chrome.tabs.create({
             url: chrome.runtime.getURL(`read.html?h=${encodeURIComponent(msg.urlHash)}&u=${encodeURIComponent(msg.url)}`),
           });
@@ -83,14 +83,14 @@ chrome.runtime.onMessage.addListener((msg: Msg, sender, send: (r: Reply) => void
       send({ ok: false, error: "exception", message: (e as Error).message });
     }
   })();
-  return true; // ответим асинхронно
+  return true; // we will reply asynchronously
 });
 
-// Стриминг /digest/stream — подписочная модель (streamStore). Любая поверхность
-// (панель на YouTube, попап) открывает порт "digest-stream": SW сразу шлёт снапшот
-// текущего стрима, дальше транслирует каждое изменение. Команды подписчика —
-// {type:"start",url} / {type:"stop"}. Закрытие окна = отписка порта, НЕ остановка стрима:
-// генерация доигрывает в фоне, окно можно вернуть повторным кликом.
+// Streaming /digest/stream — a subscription model (streamStore). Any surface
+// (panel on YouTube, popup) opens the "digest-stream" port: the SW immediately sends a snapshot
+// of the current stream, then relays every change. Subscriber commands —
+// {type:"start",url} / {type:"stop"}. Closing a window = unsubscribing the port, NOT stopping the stream:
+// generation plays out in the background; the window can be restored by a repeat click.
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== "digest-stream") return;
   if (port.sender?.id && port.sender.id !== chrome.runtime.id) return;
@@ -100,12 +100,12 @@ chrome.runtime.onConnect.addListener((port) => {
     else if (msg?.type === "stop") stopStream();
     else if (msg?.type === "removeFromQueue" && msg.url) removeFromQueue(msg.url);
     else if (msg?.type === "reorderQueue") reorderQueue(msg.fromIndex ?? -1, msg.toIndex ?? -1);
-    // keepalive — no-op: само прибытие сообщения сбрасывает idle-таймер SW.
-    else if (msg?.type === "keepalive") { /* держит SW живым */ }
+    // keepalive — no-op: the very arrival of a message resets the SW idle timer.
+    else if (msg?.type === "keepalive") { /* keeps the SW alive */ }
   });
   port.onDisconnect.addListener(() => unsubscribe(port));
 });
 
-// Читаем config.json при каждом старте SW — свежая установка или обновлённый токен
-// подхватываются без ручного ввода настроек.
+// Read config.json on every SW start — a fresh install or an updated token
+// get picked up without manual settings entry.
 void seedFromConfigJson();

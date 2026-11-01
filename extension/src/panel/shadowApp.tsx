@@ -1,6 +1,6 @@
-// Монтирование React+antd внутрь Shadow DOM. container: shadow направляет стили
-// antd cssinjs в shadow root (изоляция от CSS YouTube). React-дерево живёт в div
-// внутри shadow — createRoot принимает Element, не сам ShadowRoot.
+// Mounting React+antd inside a Shadow DOM. container: shadow directs antd cssinjs
+// styles into the shadow root (isolation from YouTube's CSS). The React tree lives in a div
+// inside the shadow — createRoot accepts an Element, not the ShadowRoot itself.
 import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { StyleProvider } from "@ant-design/cssinjs";
@@ -26,10 +26,10 @@ export function mountShadow(host: HTMLElement, node: ReactNode): {
   root: ReturnType<typeof createRoot>;
 } {
   const shadow = host.shadowRoot ?? host.attachShadow({ mode: "open" });
-  // Граница shadow: сбрасываем наследуемые font/color/line-height от YouTube, чтобы
-  // неограниченные элементы не получали шрифт хост-страницы. box-sizing — border-box
-  // по умолчанию внутри тени. all:initial НЕ используем — он бы сбросил display/position
-  // хостов (overlay fixed) и сломал раскладку.
+  // The shadow boundary: reset inheritable font/color/line-height from YouTube so
+  // unstyled elements do not get the host page's font. box-sizing — border-box
+  // by default inside the shadow. We do NOT use all:initial — it would reset the hosts'
+  // display/position (fixed overlays) and break the layout.
   const reset = document.createElement("style");
   reset.textContent = `:host{font-family:"Onest",system-ui,sans-serif;color:${TEXT};line-height:normal;font-size:14px;}*,*::before,*::after{box-sizing:border-box;}`;
   shadow.appendChild(reset);

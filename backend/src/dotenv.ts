@@ -1,6 +1,6 @@
-// Минимальный загрузчик .env без внешних зависимостей. Формат совпадает с .env.example:
-// строки `KEY=value`, пустые и `#`-комментарии пропускаются. Без подстановки переменных
-// и вложенных кавычек — значения читаются as-is.
+// A minimal .env loader without external dependencies. The format matches .env.example:
+// `KEY=value` lines; empty lines and #-comments are skipped. No variable substitution,
+// no nested quotes — values are read as-is.
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -17,9 +17,9 @@ export function parseDotEnv(text: string): Record<string, string> {
       val = val.slice(1, -1);
     }
     if (Object.hasOwn(out, key)) {
-      // Повторный ключ — последнее значение молча перезаписывало бы первое. Это почти
-      // всегда опечатка в .env, предупреждаем, но не падаем: валидация значений — дело
-      // z-схемы в config.ts.
+      // A repeated key — the last value would silently overwrite the first. This is almost
+      // always a typo in .env; we warn but do not fail: value validation is the job of the
+      // z-schema in config.ts.
       console.warn(`[dotenv] повторный ключ "${key}" — последнее значение перезаписывает первое`);
     }
     out[key] = val;
@@ -27,9 +27,9 @@ export function parseDotEnv(text: string): Record<string, string> {
   return out;
 }
 
-// Читает .env рядом с рабочим каталогом (или рядом с модулем как фолбэк) и сливает
-// с process.env. Реальные переменные окружения имеют приоритет над файлом — так .env
-// задаёт дефолт, а окружение переопределяет его.
+// Reads .env next to the working directory (or next to the module as a fallback) and merges
+// it with process.env. Real environment variables take priority over the file — so .env
+// sets the default and the environment overrides it.
 export function loadEnv(moduleDir: string): Record<string, string | undefined> {
   const candidates = [path.join(process.cwd(), ".env"), path.join(moduleDir, ".env")];
   let parsed: Record<string, string> = {};
@@ -38,7 +38,7 @@ export function loadEnv(moduleDir: string): Record<string, string | undefined> {
       parsed = parseDotEnv(readFileSync(p, "utf8"));
       break;
     } catch {
-      // Нет файла в этом месте — пробуем следующее.
+      // No file at this location — try the next.
     }
   }
   return { ...parsed, ...process.env };

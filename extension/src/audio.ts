@@ -1,7 +1,7 @@
-// Звук-уведомление при готовом конспекте. Спикер — offscreen-документ (offscreen.ts),
-// этот модуль лишь обеспечивает его наличие и шлёт {type:"play"}. Вызывается из
-// streamStore на done: короткий чим, когда конспект собрался, а пользователь мог
-// отойти от вкладки. Некритично — любой сбой гасим молча, звук не должен ронять стрим.
+// The notification sound for a finished digest. The speaker is the offscreen document (offscreen.ts);
+// this module only ensures it exists and sends {type:"play"}. Called from
+// streamStore on done: a short chime when the digest is ready and the user may have
+// left the tab. Not critical — any failure is swallowed silently; the sound must not break the stream.
 
 async function playDoneSound(): Promise<void> {
   try {
@@ -13,16 +13,16 @@ async function playDoneSound(): Promise<void> {
       });
     }
   } catch {
-    // offscreen недоступен (старый Chrome / ограничение) — звука нет, идём дальше.
+    // offscreen unavailable (old Chrome / a restriction) — no sound; carry on.
     return;
   }
   try {
     await chrome.runtime.sendMessage({ type: "play" });
   } catch {
-    // Первый play сразу после createDocument: скрипт offscreen мог не успеть навесить
-    // слушатель. Ретрай один раз — дальше слушатель уже висит.
+    // The first play right after createDocument: the offscreen script may not have attached its
+    // listener yet. One retry — by then the listener hangs.
     await new Promise((r) => setTimeout(r, 100));
-    try { await chrome.runtime.sendMessage({ type: "play" }); } catch { /* молча */ }
+    try { await chrome.runtime.sendMessage({ type: "play" }); } catch { /* silently */ }
   }
 }
 

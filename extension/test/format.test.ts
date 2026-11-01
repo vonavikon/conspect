@@ -43,7 +43,7 @@ describe("fileName", () => {
   });
 
   it("выбрасывает знаки препинания и спецсимволы", () => {
-    // # : / удаляются, пробелы остаются
+      // # : / are removed; spaces stay
     expect(fileName("Lec #1: A/B")).toBe("Lec 1 AB.md");
     expect(fileName("Тема (N) [часть 2]")).toBe("Тема N часть 2.md");
   });
@@ -113,8 +113,8 @@ describe("REASON_TEXT", () => {
     }
   });
 
-  // Каноничные формулировки, которые видит пользователь. Тест сверяется с актуальными
-  // строками, а не с устаревшей копией — так легко ловить расхождение текста.
+  // Canonical wordings the user sees. The test checks against the current
+  // strings, not a stale copy — this makes text drift easy to catch.
   it("каноничные формулировки", () => {
     expect(REASON_TEXT.invalid_url).toBe("Неправильная ссылка.");
     expect(REASON_TEXT.too_long).toBe(
@@ -139,8 +139,8 @@ describe("REASON_TEXT", () => {
     expect(REASON_TEXT.stream_closed).toBe("Соединение прервалось. Попробуйте ещё раз.");
   });
 
-  // Пользователь не должен видеть системные маркеры: english error-codes, reason-ключи,
-  // HTTP-статусы, вопросительные знаки-заглушки. Регресс на T45c/T45d.
+  // The user must not see system markers: English error codes, reason keys,
+  // HTTP statuses, question-mark placeholders. Regression test for T45c/T45d.
   it("без системных маркеров (error/reason/status/english)", () => {
     const FORBIDDEN = [
       "error:",

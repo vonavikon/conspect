@@ -1,5 +1,5 @@
-// Перенесено из прежнего content.ts: форматирование длительности, тексты ошибок
-// по reason, frontmatter и имя файла для .md-экспорта.
+// Moved here from the former content.ts: duration formatting, error texts
+// by reason, frontmatter, and the file name for .md export.
 
 export type Meta = {
   title?: string;
@@ -60,8 +60,8 @@ export function fileName(title?: string): string {
   return `${cleaned || "conspect"}.md`;
 }
 
-// Универсальное склонение существительного по числу: forms = [1, 2–4, 5+].
-// 11–14 всегда множественное (5+). «1 конспект / 2 конспекта / 5 конспектов».
+// Universal Russian plural of a noun by number: forms = [1, 2–4, 5+].
+// 11–14 always use the plural (5+). Like "1 конспект / 2 конспекта / 5 конспектов".
 export function pluralRu(n: number, forms: [string, string, string]): string {
   const a = Math.abs(n) % 100;
   const b = a % 10;
@@ -71,15 +71,15 @@ export function pluralRu(n: number, forms: [string, string, string]): string {
   return forms[2];
 }
 
-// Структурные секции конспекта — не «темы» с таймкодом. Не выводим их в списке тезисов:
-// иначе «Основные тезисы» и «Вывод» попадут в перечень тем.
+// Structural sections of the digest — not timecoded "topics". Not listed among the teasers:
+// otherwise "Основные тезисы" and "Вывод" would land in the topic list.
 const STRUCTURAL_SECTION = /^(основные тезисы|вывод|выводы)$/i;
-// Таймкод в начале «## (MM:SS) Тема» (формат промпта) или в конце «## Тема (MM:SS)».
+// A timecode at the start of "## (MM:SS) Topic" (prompt format) or at the end of "## Topic (MM:SS)".
 const TC_LEAD = /^\(\d{1,2}:\d{2}(?::\d{2})?\)\s*/;
 const TC_TRAIL = /\s*\(\d{1,2}:\d{2}(?::\d{2})?\)\s*$/;
 
-// Основные тезисы конспекта — заголовки тем (## …), очищенные от таймкода и звёздочек.
-// Для превью в архиве/попапе: показываем TL;DR + этот список + «Читать полностью», не весь текст.
+// The digest's main theses — topic headings (## …) cleaned of timecodes and asterisks.
+// For previews in the archive/popup: we show the TL;DR + this list + "Read in full", not the whole text.
 export function extractTeasers(md: string): string[] {
   const out: string[] = [];
   for (const line of md.split("\n")) {
@@ -91,7 +91,7 @@ export function extractTeasers(md: string): string[] {
   return out.slice(0, 8);
 }
 
-// Таймкоды тем конспекта по порядку — для списка «Таймкоды» в превью кабинета.
+// The digest's topic timecodes in order — for the "Timecodes" list in the dashboard preview.
 export function extractTimecodes(md: string): string[] {
   const out: string[] = [];
   for (const line of md.split("\n")) {
@@ -106,17 +106,17 @@ export function extractTimecodes(md: string): string[] {
   return out;
 }
 
-// Минут сохранено: длина видео минус ~3 мин на чтение конспекта. Короткие (<4 мин) — 0.
-// Эвристика: бэкенд агрегатов не отдаёт, считаем на клиенте (кабинет, панель, ридер).
+// Minutes saved: video length minus ~3 min to read the digest. Short ones (<4 min) — 0.
+// Heuristic: the backend returns no aggregates; we compute on the client (dashboard, panel, reader).
 export function savedMinutes(sec?: number | null): number {
   if (!sec || sec <= 240) return 0;
   return Math.floor(sec / 60) - 3;
 }
 
-// Суммарное/среднее сохранено по списку длительностей дайджестов.
-// count — все конспекты (для надписи «N конспектов»). avg — по всем конспектам
-// (totalMin/count), не только по saved>0: иначе единственный короткий ролик давал
-// «в среднем —» вместо осмысленного числа. Канон .cab-saved: total и avg по списку.
+// Total/average saved over a list of digest durations.
+// count — all digests (for the "N digests" label). avg — over all digests
+// (totalMin/count), not only saved>0: otherwise a single short video would show
+// "average —" instead of a meaningful number. Canonical .cab-saved: total and avg over the list.
 export function totalSaved(secs: (number | null | undefined)[]): { totalMin: number; count: number; avgMin: number } {
   const totalMin = secs.map(savedMinutes).reduce((a, b) => a + b, 0);
   const count = secs.length;
@@ -124,9 +124,9 @@ export function totalSaved(secs: (number | null | undefined)[]): { totalMin: num
   return { totalMin, count, avgMin };
 }
 
-// Минуты в компактную строку: 40 мин; 5 ч 20 мин; 2 дн 3 ч. Сутки и больше — в днях
-// (totalMin в кабинете уходит за 24 ч уже на ~10 длинных видео, «1534 мин» не читается).
-// Нулевые хвосты опускаем: «5 ч», «2 дн», не «5 ч 0 мин».
+// Minutes into a compact string: 40 мин; 5 ч 20 мин; 2 дн 3 ч. A day and above — in days
+// (the dashboard's totalMin exceeds 24h at ~10 long videos; "1534 мин" is unreadable).
+// Zero tails are omitted: "5 ч", "2 дн", not "5 ч 0 мин".
 export function fmtSavedMin(min: number): string {
   if (min < 60) return `${min} мин`;
   const h = Math.floor(min / 60);
@@ -137,16 +137,16 @@ export function fmtSavedMin(min: number): string {
   return rh ? `${d} дн ${rh} ч` : `${d} дн`;
 }
 
-// Разделить conspectus на TL;DR («Главная мысль») и тело. TL;DR — первый блок до
-// первого «## » (как в макете rp-tldr). Если conspectus начинается с «## » — TL;DR пуст.
-// Отступы в начале строк снимаем: модель иногда ставит 4 пробела, и marked читает это
-// как code-блок — второй абзац уезжает в моноширинный отступ «где-то с середины».
+// Split the conspectus into the TL;DR ("Main idea") and the body. The TL;DR is the first block up to
+// the first "## " (as in the rp-tldr layout). If the conspectus starts with "## " — the TL;DR is empty.
+// Leading indentation is stripped: the model sometimes puts 4 spaces, and marked reads that
+// as a code block — the second paragraph slides into a monospace indent "somewhere from the middle".
 export function splitTldr(md: string): { tldr: string; body: string } {
   const s = md.replace(/^\s+/, "");
-  // Граница «Главной мысли» — первый структурный блок: заголовок секции (## ) или
-  // блок-цитата «Оговорка» (> ), что раньше. «Оговорка» — контент тела, а не TL;DR:
-  // до неё лишь вступление (1-2 предложения), иначе blockquote уезжал в .rp-tldr-txt,
-  // где нет стилей .rp-body blockquote — вёрстка оговорки ломалась после первого «##».
+  // The "Main idea" boundary is the first structural block: a section heading (## ) or
+  // the "Disclaimer" blockquote (> ), whichever comes first. The disclaimer is body content, not TL;DR:
+  // before it there is only the intro (1-2 sentences); otherwise the blockquote slid into .rp-tldr-txt,
+  // which lacks the .rp-body blockquote styles — the disclaimer layout broke after the first "##".
   const headingIdx = s.search(/^##\s/m);
   const quoteIdx = s.search(/^>\s?/m);
   let idx = -1;
@@ -164,8 +164,8 @@ export function splitTldr(md: string): { tldr: string; body: string } {
   return { tldr, body: s.slice(idx) };
 }
 
-// YouTube videoId из URL — для сравнения «чей ролик» (лента/related) и автозакрытия
-// панели при SPA-навигации. На мусорном href фолбэк на саму строку, без выброса.
+// YouTube videoId from a URL — to tell "whose video" (feed/related) and to auto-close
+// the panel on SPA navigation. On a garbage href, fall back to the string itself, no throw.
 export function videoId(href: string): string {
   try {
     return new URL(href, location.origin).searchParams.get("v") ?? href;
@@ -174,8 +174,8 @@ export function videoId(href: string): string {
   }
 }
 
-// Стабильный ключ кэша по видео: djb2-хэш videoId. Один и тот же ролик с разными
-// query-параметрами (list/t) попадает в один кэш-слот.
+// Stable cache key per video: a djb2 hash of the videoId. The same video with different
+// query params (list/t) lands in one cache slot.
 export function hashUrl(url: string): string {
   let h = 5381;
   const s = videoId(url);
@@ -185,13 +185,13 @@ export function hashUrl(url: string): string {
   return (h >>> 0).toString(16);
 }
 
-// Дата «DD.MM» из unix-секунд — для строк таблицы кабинета и недавних в попапе.
+// A "DD.MM" date from unix seconds — for dashboard table rows and the popup's recents.
 export function fmtDate(ts: number): string {
   return new Date(ts * 1000).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
 }
 
-// Скачать текст как файл: Blob + object URL + клик по <a>. Общая механика .md-экспорта
-// из кабинета, ридера и панели; имя/текст обёртки формируют по-своему.
+// Download text as a file: Blob + object URL + an <a> click. Shared mechanics of .md export
+// from the dashboard, reader, and panel; name and wrapper text are built per call site.
 export function downloadBlob(name: string, text: string): void {
   const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
   const u = URL.createObjectURL(blob);

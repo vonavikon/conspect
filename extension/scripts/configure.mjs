@@ -1,14 +1,14 @@
 #!/usr/bin/env node
-// Детерминированная настройка расширения: пишет extension/config.json с адресом сервера
-// и общим токеном. Запускается агентом или пользователем при установке. Расширение
-// читает config.json при первом запуске service worker; настроек сервера в интерфейсе
-// нет. Файл в .gitignore: токен не попадает в репозиторий.
+// Deterministic extension setup: writes extension/config.json with the server address
+// and the shared token. Run by the agent or the user at install time. The extension
+// reads config.json on the first service worker start; there are no server settings in
+// the UI. The file is in .gitignore: the token never reaches the repo.
 //
 //   node scripts/configure.mjs --base-url https://conspect.example.com --gen-token
-//   node scripts/configure.mjs --base-url http://127.0.0.1:3000 --token <значение>
+//   node scripts/configure.mjs --base-url http://127.0.0.1:3000 --token <value>
 //
-// С --gen-token скрипт печатает сгенерированный токен один раз. Его же надо вписать в
-// backend/.env строкой SHARED_TOKEN=<токен>. Больше скрипт токен нигде не выводит.
+// With --gen-token the script prints the generated token once. The same token must go into
+// backend/.env as the line SHARED_TOKEN=<token>. The script never prints the token elsewhere.
 import { writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";

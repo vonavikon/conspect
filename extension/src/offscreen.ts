@@ -1,7 +1,7 @@
-// Offscreen-документ (reason AUDIO_PLAYBACK) — единственное место, где расширение
-// проигрывает звук из фона без привязки к странице. MV3 service worker не имеет DOM и
-// не может создать AudioContext. SW зовёт сюда через runtime.sendMessage({type:"play"}).
-// Чим синтезируется Web Audio — своего бинарного ассета нет, звук не храним в репо.
+// The offscreen document (reason AUDIO_PLAYBACK) — the only place where the extension
+// plays sound from the background without a page. An MV3 service worker has no DOM and
+// cannot create an AudioContext. The SW calls in via runtime.sendMessage({type:"play"}).
+// The chime is synthesized with Web Audio — no binary asset of our own; no sound is stored in the repo.
 chrome.runtime.onMessage.addListener((msg: { type?: string }) => {
   if (msg?.type === "play") void playChime();
 });
@@ -10,15 +10,15 @@ let ctx: AudioContext | null = null;
 
 function playChime(): void {
   try {
-    // Ленивый AudioContext: первый play создаёт, дальше переиспользуем. Chrome
-    // резюмирует приостановленный контекст; offscreen с AUDIO_PLAYBACK автоплей
-    // разрешён без свежего жеста пользователя.
+    // Lazy AudioContext: the first play creates it, then we reuse. Chrome
+    // resumes a suspended context; offscreen with AUDIO_PLAYBACK has autoplay
+    // allowed without a fresh user gesture.
     if (!ctx) ctx = new AudioContext();
     const ac = ctx;
     if (ac.state === "suspended") void ac.resume();
 
-    // Короткий «динь-дон»: две ноты (A5 → E6) по ~0.16с, sine, мягкая атака и
-    // экспоненциальное затухание — без щелчка на краях огибающей.
+    // A short "ding-dong": two notes (A5 → E6) of ~0.16s each, sine, soft attack and
+    // exponential decay — no click at the envelope edges.
     const now = ac.currentTime;
     const notes: { f: number; t: number }[] = [
       { f: 880, t: 0 },
@@ -38,6 +38,6 @@ function playChime(): void {
       osc.stop(start + 0.32);
     }
   } catch {
-    // Аудио недоступно (контекст не резюмировался) — молча, звук не критичен.
+    // Audio unavailable (context did not resume) — silent; the sound is not critical.
   }
 }

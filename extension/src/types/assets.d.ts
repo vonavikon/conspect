@@ -1,5 +1,5 @@
-// Декларации для бинарных ассетов, инлайнируемых esbuild как data: URL (build.mjs,
-// loader .woff2: dataurl). Без этого tsc --noEmit не видит модулей @fontsource/.../*.woff2.
+// Declarations for binary assets inlined by esbuild as data: URLs (build.mjs,
+// loader .woff2: dataurl). Without this, tsc --noEmit does not see the @fontsource/.../*.woff2 modules.
 declare module "*.woff2" {
   const src: string;
   export default src;

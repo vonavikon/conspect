@@ -1,4 +1,4 @@
-// Извлечение видео: нормализация URL, yt-dlp (probe + субтитры), выбор языка.
+// Video extraction: URL normalization, yt-dlp (probe + captions), language selection.
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { access } from "node:fs/promises";
@@ -11,8 +11,8 @@ export type VideoProbe = {
   title: string;
   channel: string;
   durationSec: number;
-  lang: string; // raw-ключ дорожки yt-dlp (для --sub-langs): "en", "ru-orig", "en-j3PyPqV-e1s"
-  langCode: string; // чистый базовый код (для меты и LLM-промпта): "en", "ru"
+  lang: string; // raw yt-dlp track key (for --sub-langs): "en", "ru-orig", "en-j3PyPqV-e1s"
+  langCode: string; // clean base code (for meta and the LLM prompt): "en", "ru"
   hasManual: boolean;
   subsKind: "manual" | "auto";
 };
@@ -23,8 +23,8 @@ export function validateYouTubeUrl(raw: string): boolean {
   return normalizeYouTubeUrl(raw) !== null;
 }
 
-// Каноничный watch?v=ID из любой формы ссылки: watch?v=, youtu.be/, shorts/, embed/, live/.
-// Один ключ кэша/биллинга независимо от &pp=, &t=, &si=, list= и прочих трекинг-параметров.
+// A canonical watch?v=ID from any link form: watch?v=, youtu.be/, shorts/, embed/, live/.
+// One cache/billing key regardless of &pp=, &t=, &si=, list= and other tracking params.
 export function normalizeYouTubeUrl(raw: string): string | null {
   let u: URL;
   try { u = new URL(raw); } catch { return null; }
@@ -42,15 +42,15 @@ export function normalizeYouTubeUrl(raw: string): string | null {
   return `https://www.youtube.com/watch?v=${id}`;
 }
 
-// yt-dlp отдаёт automatic_captions отсортированными по коду языка, поэтому
-// Object.keys()[0] почти всегда бессмысленный (ab, aa…). Для не-оригинального
-// языка это ещё и машинный перевод. Выбираем по заявленному языку видео,
-// затем по частым языкам, иначе любой не-служебный ключ.
+// yt-dlp returns automatic_captions sorted by language code, so
+// Object.keys()[0] is almost always meaningless (ab, aa…). For a non-original
+// language it is also a machine translation. We pick by the video's declared language,
+// then by common languages, else any non-junk key.
 const COMMON_LANGS = ["en", "ru", "es", "fr", "de", "pt", "it", "uk", "pl", "tr"];
 
-// Служебные «дорожки» yt-dlp, не являющиеся речью: чат трансляции (live_chat) и т.п.
-// Если выбрать их, yt-dlp скачает чат стрима — это не субтитры, конспект невозможен
-// (баг: «субтитры не скачались: subs.live_chat.srt» через ~5с). Фильтруем до выбора.
+// yt-dlp "tracks" that are not speech: the live-stream chat (live_chat) and the like.
+// Picking one makes yt-dlp download the stream chat — not captions; no digest is possible
+// (bug: "субтитры не скачались: subs.live_chat.srt" after ~5s). Filtered before selection.
 const JUNK = /chat/i;
 function pickCaptionLang(pool: string[], declared?: string): string | undefined {
   const langs = pool.filter((l) => !JUNK.test(l));
@@ -76,13 +76,13 @@ export type Runner = (file: string, args: string[], opts: { timeout: number }) =
 
 type Deps = { probeTimeoutSec: number; downloadTimeoutSec: number; runner?: Runner; ytdlpBin?: string };
 
-// Путь к yt-dlp: явный YTDLP_BIN из окружения → рядом с бинарником/модулем → PATH.
-// На Windows рядом с сервером может лежать yt-dlp.exe, чтобы не требовать установку
-// yt-dlp в систему. В Docker (образ ставит yt-dlp в PATH) резолвится обычный yt-dlp.
+// Path to yt-dlp: an explicit YTDLP_BIN from the environment → next to the binary/module → PATH.
+// On Windows a yt-dlp.exe may sit next to the server, avoiding a system-wide yt-dlp
+// install. In Docker (the image installs yt-dlp into PATH) the plain yt-dlp resolves.
 export function resolveYtdlpBin(moduleDir: string): string {
   if (process.env.YTDLP_BIN) return process.env.YTDLP_BIN;
   for (const name of ["yt-dlp.exe", "yt-dlp"]) {
-    // Проверка существования выполняется синхронно один раз при старте.
+    // The existence check runs synchronously once at startup.
     if (existsSync(path.join(moduleDir, name))) return path.join(moduleDir, name);
   }
   return "yt-dlp";
@@ -130,7 +130,7 @@ export function createYoutube(deps: Deps) {
 
   async function downloadCaptions(url: string, probe: VideoProbe, outBase: string): Promise<string> {
     const flag = probe.subsKind === "manual" ? "--write-subs" : "--write-auto-subs";
-    // yt-dlp пишет <outBase>.<lang>.srt
+    // yt-dlp writes <outBase>.<lang>.srt
     await runner(bin,
       ["--no-update", "--skip-download", flag, "--sub-langs", probe.lang,
        "--sub-format", "srt", "-o", `${outBase}.%(ext)s`, url],
