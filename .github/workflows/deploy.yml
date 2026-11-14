@@ -1,0 +1,35 @@
+name: deploy
+# Деплой conspect на skrime-main: юзер deploy, отдельный ключ (не root).
+# Репо публичный: IP сервера в коде не светим, адрес приходит секретом.
+# Секреты: SKRIME_DEPLOY_KEY (приватный ключ deploy), SKRIME_HOST_KEY (хост-ключ skrime-main),
+# SKRIME_DEPLOY_HOST (адрес skrime-main).
+on: [workflow_dispatch]
+permissions:
+  contents: read
+concurrency:
+  group: deploy-conspect
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Настроить SSH (deploy@skrime-main)
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SKRIME_DEPLOY_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          echo "${{ secrets.SKRIME_HOST_KEY }}" >> ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<CFG
+          Host skrime-main
+              HostName ${{ secrets.SKRIME_DEPLOY_HOST }}
+              User deploy
+              IdentityFile ~/.ssh/id_deploy
+              IdentitiesOnly yes
+          CFG
+      - name: Деплой (снапшот, hotfix-детект, заливка, build, verify)
+        run: bash deploy.sh
+      - name: Пост-проверка
+        run: |
+          ssh skrime-main 'docker ps --filter name=conspect-backend --format "{{.Status}}"'

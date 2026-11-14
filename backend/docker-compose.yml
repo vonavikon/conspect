@@ -2,6 +2,12 @@ services:
   backend:
     build: .
     container_name: conspect-backend
+    healthcheck:
+      test: ["CMD", "node", "-e", "process.kill(1,0)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
     restart: always
     env_file: .env
     environment:
@@ -11,4 +17,5 @@ services:
       # хоста. Значение перекрывает HOST из .env — там оно для запуска без Docker.
       - HOST=0.0.0.0
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:3010:3000"
+    mem_limit: 256m
