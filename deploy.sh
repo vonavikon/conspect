@@ -14,7 +14,7 @@ REMOTE=/opt/conspect
 COMPOSE_DIR=backend
 SERVICE=backend
 KEEP_SNAPSHOTS=5
-EXCLUDE='^(backups/|\.env)$'
+EXCLUDE='^(backups/|\.env)(/.*)?$'
 
 cd "$(git rev-parse --show-toplevel)"
 FILES=$(git ls-files | grep -vE "$EXCLUDE")
