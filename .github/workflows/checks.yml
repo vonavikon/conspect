@@ -24,7 +24,7 @@ jobs:
           npm ci
           npm test
       - name: trivy скан зависимостей (отчёт)
-        uses: aquasecurity/trivy-action@v0.31.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scanners: vuln
