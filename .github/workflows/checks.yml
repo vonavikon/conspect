@@ -1,0 +1,32 @@
+name: checks
+on: [push, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dockerfile lint (hadolint, информационно)
+        run: if ls Dockerfile */Dockerfile 2>/dev/null | head -1 | grep -q .; then for df in $(ls Dockerfile */Dockerfile 2>/dev/null); do echo "== $df"; docker run --rm -i hadolint/hadolint < "$df" || true; done; fi
+      - name: compose валидна (без печати секретов)
+        run: |
+          f=$(ls docker-compose.yml */docker-compose.yml 2>/dev/null | head -1); [ -z "$f" ] && exit 0
+          cd $(dirname "$f")
+          if [ -f .env.example ]; then cp .env.example .env; else
+            grep -oE '\$\{[A-Za-z_]+[:-]' docker-compose.yml | sed 's/[${:-]//g' | sort -u | while read v; do echo "$v=checkdummy" >> .env; done
+          fi
+          docker compose config -q && echo "compose OK"
+      - name: Тесты
+        run: |
+          cd backend
+          npm ci
+          npm test
+      - name: trivy скан зависимостей (отчёт)
+        uses: aquasecurity/trivy-action@v0.28.0
+        with:
+          scan-type: fs
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          exit-code: 0
