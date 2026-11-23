@@ -23,10 +23,43 @@ jobs:
           cd backend
           npm ci
           npm test
-      - name: trivy скан зависимостей (отчёт)
+      - name: trivy скан зависимостей (отчёт CRITICAL и HIGH)
+        # v0.28.0 сломан upstream (ссылается на несуществующий setup-trivy@v0.2.1), рабочая — v0.36.0
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scanners: vuln
           severity: CRITICAL,HIGH
           exit-code: 0
+          format: json
+          output: trivy-report.json
+      - name: trivy гейт (CRITICAL делает проверку красной, HIGH остаётся в отчёте)
+        # Сервис-стандарт, п.17: деплой без зелёной проверки этого коммита не выполняется
+        # (гейт в deploy.yml), поэтому красная проверка здесь означает заблокированный деплой.
+        run: |
+          python3 - <<'PY'
+          import json, sys
+
+          # Разбор отчёта trivy (JSON). Код выхода 1, только если есть CRITICAL.
+          # HIGH остаются в отчёте и не блокируют: иначе проверка краснеет из-за шума.
+          data = json.load(open("trivy-report.json"))
+          crit, high = [], []
+          for result in data.get("Results") or []:
+              target = result.get("Target", "")
+              for v in result.get("Vulnerabilities") or []:
+                  row = (target, v.get("PkgName"), v.get("InstalledVersion"), v.get("VulnerabilityID"), v.get("FixedVersion") or "нет фикса")
+                  (crit if v.get("Severity") == "CRITICAL" else high).append(row)
+
+          def show(title, rows):
+              if not rows:
+                  return
+              print(f"\n{title}: {len(rows)}")
+              for t, p, ver, cve, fix in sorted(set(rows)):
+                  print(f"  {t} | {p} {ver} | {cve} | фикс: {fix}")
+
+          show("CRITICAL", crit)
+          show("HIGH", high)
+          print(f"\ntrivy: CRITICAL {len(crit)}, HIGH {len(high)}")
+          if crit:
+              sys.exit("Найдены CRITICAL уязвимости. Проверка красная, деплой этого коммита заблокирован (Сервис-стандарт, п.17).")
+          PY

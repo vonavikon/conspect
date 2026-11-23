@@ -6,6 +6,7 @@ name: deploy
 on: [workflow_dispatch]
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: deploy-conspect
   cancel-in-progress: false
@@ -15,6 +16,19 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - name: "Гейт: деплой только при зелёной проверке checks на этом коммите"
+        # Сервис-стандарт, п.15: деплой уходит ровно того коммита, что прошёл проверки.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          STATE="$(gh run list -R "$GITHUB_REPOSITORY" --workflow checks.yml --commit "$GITHUB_SHA" --json status,conclusion \
+            --jq 'if length == 0 then "нет запуска" else (sort_by(.createdAt) | last | (.status + "/" + (.conclusion // "в работе"))) end')"
+          echo "checks.yml на $GITHUB_SHA: $STATE"
+          if [ "$STATE" != "completed/success" ]; then
+            echo "::error::Проверка checks.yml на этом коммите в состоянии «$STATE», а не «успех». Деплой отменён."
+            exit 1
+          fi
       - name: Настроить SSH (deploy@skrime-main)
         run: |
           mkdir -p ~/.ssh
